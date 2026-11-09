@@ -13,6 +13,11 @@ import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import { representativeChannelAccount } from "../src/server/db/schema";
 import { representativeFeature } from "../src/server/plugin";
 import { voice } from "../src/server/voice-adapter";
+import {
+  connectVoiceAccount,
+  regenerateVoiceSecret,
+  setVoiceGreeting,
+} from "../src/server/voice-account";
 import { defaultVoiceGreeting, maxVoiceGreetingLength } from "../src/shared/contract";
 
 /*
@@ -57,6 +62,8 @@ async function anOwner(deps: TestDeps) {
   const { id: representativeId } = await client.representative.create({ name: "Front desk" });
   return { user, client, representativeId };
 }
+
+type SaveInput = { userId: string; representativeId: string; channelAccountId: string };
 
 /** An SMS account the Representative holds, as the database has it: only its number matters here. */
 async function holdSms(representativeId: string, smsNumber: string) {
@@ -281,6 +288,68 @@ describe("regenerating the secret", () => {
         channelAccountId: sms!.id,
       }),
     ).rejects.toMatchObject({ data: { code: "error.voiceAccountNotFound" } });
+  });
+});
+
+describe("two saves of one voice account at once", () => {
+  it.each([
+    [
+      "a regenerate",
+      (context: ReturnType<typeof sdk>["context"], input: SaveInput) =>
+        regenerateVoiceSecret(context, input),
+    ],
+    [
+      "a reconnect",
+      (context: ReturnType<typeof sdk>["context"], input: SaveInput) =>
+        connectVoiceAccount(context, {
+          userId: input.userId,
+          representativeId: input.representativeId,
+          number: "+15551234567",
+        }),
+    ],
+  ])("a greeting saved while %s runs can't bring the old secret back", async (_name, other) => {
+    const { deps, context } = sdk();
+    const { user, client, representativeId } = await anOwner(deps);
+    const connected = await client.representative.voiceAccountConnect({
+      id: representativeId,
+      number: "+15551234567",
+    });
+    const channelAccountId = connected.view.accounts[0]!.id;
+    const input = { userId: user.id, representativeId, channelAccountId };
+
+    let read = () => {};
+    const greetingRead = new Promise<void>((resolve) => (read = resolve));
+    let letGo = () => {};
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const pausedContext = {
+      ...context,
+      channelAccounts: {
+        ...context.channelAccounts,
+        credentialsOf: async (id: string, platform: string) => {
+          const credentials = await context.channelAccounts.credentialsOf(id, platform);
+          read();
+          await held;
+          return credentials;
+        },
+      },
+    };
+
+    // The greeting has read the old secret and is about to write it back.
+    const saving = setVoiceGreeting(pausedContext as typeof context, {
+      ...input,
+      greeting: "A new greeting",
+    });
+    await greetingRead;
+    const replaced = other(context, input);
+    // Long enough for an unserialised save to have finished; a serialised one waits on the greeting.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    letGo();
+    await saving;
+    const { secret } = await replaced;
+
+    const final = await context.channelAccounts.credentialsOf(channelAccountId, "voice");
+    expect(final!.secret).toBe(secret);
+    expect(final!.secret).not.toBe(connected.secret);
   });
 });
 

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { channelAccount } from "@botsdk/bot/storage";
 import { rpcError } from "@botsdk/bot/rpc-error";
@@ -22,6 +22,18 @@ import { voiceNumber, voicePlatform } from "./voice-adapter";
  */
 
 const newSecret = () => randomBytes(32).toString("base64url");
+
+/**
+ * Runs `save` with this owner's voice credentials held. Every change writes the whole set, read just
+ * before, so one running beside another could write back a secret a regenerate has just replaced.
+ */
+const whileHolding = <T>(context: Context, userId: string, save: () => Promise<T>) =>
+  context.db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${"representative_voice:" + userId}))`,
+    );
+    return save();
+  });
 
 /**
  * Connects a voice account for the number, or replaces the owner's account on it, with a new secret.
@@ -48,12 +60,14 @@ export async function connectVoiceAccount(
     );
   }
   const secret = newSecret();
-  await connectChannelAccount(context, {
-    userId,
-    representativeId,
-    platform: voicePlatform,
-    credentials: { number, greeting: input.greeting || defaultVoiceGreeting, secret },
-  });
+  await whileHolding(context, userId, () =>
+    connectChannelAccount(context, {
+      userId,
+      representativeId,
+      platform: voicePlatform,
+      credentials: { number, greeting: input.greeting || defaultVoiceGreeting, secret },
+    }),
+  );
   return { secret, view: await channelAccountsView(context, userId, representativeId, linkUrl) };
 }
 
@@ -95,13 +109,15 @@ export async function regenerateVoiceSecret(
   input: { userId: string; representativeId: string; channelAccountId: string; linkUrl?: string },
 ): Promise<VoiceAccountSecret> {
   const { userId, representativeId, linkUrl } = input;
-  const credentials = await heldVoiceCredentials(context, input);
   const secret = newSecret();
-  await connectChannelAccount(context, {
-    userId,
-    representativeId,
-    platform: voicePlatform,
-    credentials: { ...credentials, secret },
+  await whileHolding(context, userId, async () => {
+    const credentials = await heldVoiceCredentials(context, input);
+    await connectChannelAccount(context, {
+      userId,
+      representativeId,
+      platform: voicePlatform,
+      credentials: { ...credentials, secret },
+    });
   });
   return { secret, view: await channelAccountsView(context, userId, representativeId, linkUrl) };
 }
@@ -122,12 +138,14 @@ export async function setVoiceGreeting(
   },
 ): Promise<ChannelAccountsView> {
   const { userId, representativeId, linkUrl } = input;
-  const credentials = await heldVoiceCredentials(context, input);
-  await connectChannelAccount(context, {
-    userId,
-    representativeId,
-    platform: voicePlatform,
-    credentials: { ...credentials, greeting: input.greeting || defaultVoiceGreeting },
+  await whileHolding(context, userId, async () => {
+    const credentials = await heldVoiceCredentials(context, input);
+    await connectChannelAccount(context, {
+      userId,
+      representativeId,
+      platform: voicePlatform,
+      credentials: { ...credentials, greeting: input.greeting || defaultVoiceGreeting },
+    });
   });
   return channelAccountsView(context, userId, representativeId, linkUrl);
 }

@@ -742,7 +742,7 @@ describe("for the counters a Call is the Customer's word", () => {
     await getTestDb()
       .insert(representativeThreadMessage)
       .values(
-        Array.from({ length: inboundLimit - 1 }, (_, index) => ({
+        Array.from({ length: inboundLimit - 2 }, (_, index) => ({
           id: uuidv7(),
           threadId: id,
           position: index + 1,
@@ -756,7 +756,7 @@ describe("for the counters a Call is the Customer's word", () => {
       );
     await getTestDb()
       .update(representativeThread)
-      .set({ messageCount: inboundLimit - 1 })
+      .set({ messageCount: inboundLimit - 2 })
       .where(eq(representativeThread.id, id));
 
     expect(await callStarts("call-1")).toMatchObject({ decision: "answer" });
