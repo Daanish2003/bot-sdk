@@ -142,6 +142,9 @@ export const representativeMessages = {
     "Paired with your SMS account on this number: follow-up texts come from it.",
   "representative.voiceNotPaired":
     "No SMS account has this number, so there are no follow-up texts after a Call.",
+  "representative.voiceLastCall": ({ when }: { when: string }) => `Last call ${when}`,
+  "representative.voiceLastCallJustNow": "Last call just now",
+  "representative.voiceNoCalls": "No calls yet",
   "representative.voiceChecklist": "Setup checklist",
   "representative.voiceCheck1":
     "In LiveKit, create a SIP inbound trunk for your number and a dispatch rule that sends calls to the agent.",
@@ -365,6 +368,19 @@ export const representativeMessages = {
   "representative.topics.demoteOf": ({ name }: { name: string }) =>
     `Make replies on topic ${name} wait for your approval`,
   "representative.threadBot": "Result from the Bot, for the Customer",
+  "representative.threadCall": "Phone call",
+  "representative.threadCallStarted": ({ time }: { time: string }) => `📞 Call started · ${time}`,
+  "representative.threadCallEnded": ({ minutes }: { minutes: number }) =>
+    `Call ended · ${minutes} min · hung up`,
+  "representative.threadCallCapped": ({ minutes }: { minutes: number }) =>
+    `Call ended · ${minutes} min · 10-minute cap`,
+  "representative.threadCallNoTranscript": "Call ended · no transcript",
+  "representative.threadCallLive": ({ clock }: { clock: string }) =>
+    `live · ${clock} · replies are spoken`,
+  "representative.threadCallPill": ({ clock }: { clock: string }) => `On a call ${clock}`,
+  "representative.threadCallByPhone": "📞 by phone",
+  "representative.threadCallShow": ({ count }: { count: number }) => `Show ${count}`,
+  "representative.threadCallHide": "Hide",
   "representative.threadTakeOver": "Take over",
   "representative.threadHandBack": "Hand back",
   "representative.threadMessageLabel": "Your message to the Customer",

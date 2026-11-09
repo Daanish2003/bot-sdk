@@ -117,6 +117,9 @@ export function VoiceAccountSection({
                   ? t("representative.voicePaired")
                   : t("representative.voiceNotPaired")}
               </p>
+              <p data-voice-last-call="" className="text-xs text-muted-foreground">
+                <LastCall at={account.voice.lastCallAt} />
+              </p>
               {account.voice.hookUrl ? (
                 <div className="space-y-1">
                   <Input
@@ -171,6 +174,24 @@ export function VoiceAccountSection({
       ))}
     </section>
   );
+}
+
+/** How long ago `at` was, in the largest whole unit up to days. */
+function ago(at: Date, locale: string) {
+  const minutes = Math.round((at.getTime() - Date.now()) / 60_000);
+  const format = new Intl.RelativeTimeFormat(locale, { numeric: "always" });
+  if (minutes > -60) return format.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours > -24) return format.format(hours, "hour");
+  return format.format(Math.round(hours / 24), "day");
+}
+
+/** "Last call 2 hours ago": the signal that a Voice agent is connected and working. */
+function LastCall({ at }: { at: Date | null }) {
+  const { t, locale } = useI18n();
+  if (!at) return <>{t("representative.voiceNoCalls")}</>;
+  if (Date.now() - at.getTime() < 60_000) return <>{t("representative.voiceLastCallJustNow")}</>;
+  return <>{t("representative.voiceLastCall", { when: ago(at, locale) })}</>;
 }
 
 /** The greeting, with an edit in place: the secret and number stay, so the Voice agent keeps working. */

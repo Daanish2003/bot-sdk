@@ -114,6 +114,7 @@ const voiceId = "0195c6a0-0000-7000-8000-000000000009";
 function fakeVoiceServer(
   calls: { connect: unknown[]; regenerate: unknown[]; greeting?: unknown[] },
   connected = false,
+  lastCallAt: Date | null = null,
 ) {
   const sms = {
     id: accountId,
@@ -136,6 +137,7 @@ function fakeVoiceServer(
       greeting: "Hello, thanks for calling. How can I help?",
       hookUrl: `https://app.example/api/chat/representative/voice/${voiceId}`,
       smsPaired: true,
+      lastCallAt,
     },
     createdAt: new Date("2026-11-02T00:00:00Z"),
   };
@@ -223,6 +225,22 @@ describe("a Representative's phone calls", () => {
     );
     await screen.findByLabelText("Hook URL");
     expect(screen.queryByLabelText("Secret")).toBeNull();
+  });
+
+  it.each([
+    ["No calls yet", null],
+    ["Last call just now", new Date(Date.now() - 5_000)],
+    ["Last call 2 hours ago", new Date(Date.now() - 2 * 3_600_000)],
+  ])("reads %s under the account", async (shown, lastCallAt) => {
+    render(
+      providerFor(createElement(ChannelAccountsSection, { id }), {
+        fetch: fakeVoiceServer({ connect: [], regenerate: [] }, true, lastCallAt),
+        features: [representativeClient()],
+        messages: {},
+      }),
+    );
+
+    expect(await screen.findByText(shown)).toBeTruthy();
   });
 
   it("asks before regenerating, then shows the new secret", async () => {

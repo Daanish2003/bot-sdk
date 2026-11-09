@@ -8,6 +8,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type {
+  CallEntryView,
   CustomerView,
   ThreadHolder,
   ThreadMessageView,
@@ -16,8 +17,10 @@ import type {
   ThreadWaitingOn,
 } from "../shared/contract";
 import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
+import { transcriptLines } from "./call-transcript";
 import {
   representative,
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeHandOff,
@@ -87,7 +90,7 @@ export function waitingOn(
   heldWaiting = false,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
-  const speaking = lastAuthor === "customer" || lastAuthor === "bot";
+  const speaking = lastAuthor === "customer" || lastAuthor === "bot" || lastAuthor === "call";
   if (state === "owner") {
     if (speaking || turnDue || leftForOwner) return "owner";
     if (botWorking) return "bot";
@@ -97,7 +100,8 @@ export function waitingOn(
   if (turnDue) return "representative";
   if (botWorking) return "bot";
   if (codeHandedOff || leftForOwner || heldWaiting) return "owner";
-  return speaking ? null : "customer";
+  // A thread a Call opened has no message until the Call ends: nobody owes anyone a word yet.
+  return speaking || lastAuthor === null ? null : "customer";
 }
 
 /** `userId`'s Customers named by `ids` (all of them when omitted), oldest first, with their identities; none merged away. */
@@ -600,8 +604,27 @@ export async function getThread(
         ...message,
         reply:
           message.author === "representative" ? { kind: replyKind, sources: sources ?? [] } : null,
+        call: null as CallEntryView | null,
       })),
     );
+  const calls = await db
+    .select({
+      messageId: representativeCall.messageId,
+      status: representativeCall.status,
+      startedAt: representativeCall.startedAt,
+      endedAt: representativeCall.endedAt,
+    })
+    .from(representativeCall)
+    .where(eq(representativeCall.threadId, threadId))
+    .orderBy(asc(representativeCall.startedAt));
+  for (const call of calls) {
+    const message = messages.find(({ id }) => id === call.messageId);
+    if (message) {
+      const { messageId: _messageId, ...times } = call;
+      message.call = { ...times, lines: transcriptLines(message.text) };
+    }
+  }
+  const live = calls.filter((call) => call.status === "in_progress").at(-1);
   const { identities, name } = await readCustomer(context, userId, row.customerId);
   const held = await db
     .select({
@@ -631,5 +654,6 @@ export async function getThread(
     identities,
     messages,
     held,
+    liveCall: live ? { startedAt: live.startedAt } : null,
   };
 }

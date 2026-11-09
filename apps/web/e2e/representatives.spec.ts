@@ -310,6 +310,78 @@ test("an owner connects phone calls, sees the secret once, regenerates it, and a
   await expect(section.locator("[data-voice-account]")).toHaveCount(0);
 });
 
+test("a phone call shows live on its thread, then as one group between dividers, and setup shows the last call", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Call desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+  await page.getByLabel("Job text").fill("Answer questions about opening hours.");
+  await page.getByRole("button", { name: "Approve as a new Release" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+  await page.getByRole("checkbox", { name: "Serving" }).click();
+  await expect(page.getByRole("checkbox", { name: "Serving" })).toBeChecked();
+
+  const section = page.locator("[data-representative-voice]");
+  await section.getByRole("checkbox", { name: "Take calls on this number" }).check();
+  const number = `+1556${String(Date.now()).slice(-7)}`;
+  await section.getByLabel("Phone number (E.164)").fill(number);
+  await section.getByRole("button", { name: "Connect calls" }).click();
+  const account = section.locator("[data-voice-account]");
+  const secretInput = account.getByLabel("Secret");
+  await expect(secretInput).toBeVisible();
+  const secret = await secretInput.inputValue();
+  await expect(account.locator("[data-voice-last-call]")).toHaveText("No calls yet");
+  const { pathname } = new URL(await account.getByLabel("Hook URL").inputValue());
+  const hook = (name: string, data: unknown, key = secret) =>
+    page.request.post(`${pathname}/${name}`, {
+      headers: { authorization: `Bearer ${key}` },
+      data,
+    });
+
+  const callId = `call-${Date.now()}`;
+  const started = await hook("start", { callId, caller: "+15557654321" });
+  expect(await started.json()).toMatchObject({ decision: "answer" });
+
+  // On the line: a thread with no messages yet, and the running call.
+  await page.reload();
+  const thread = page.locator("[data-thread]").filter({ hasText: "+15557654321" });
+  await thread.getByRole("button", { name: /^Read / }).click();
+  await expect(thread.getByText(/^On a call \d+:\d\d$/)).toBeVisible();
+  await expect(thread.locator("[data-call-live]")).toContainText("Call started");
+  await expect(thread.locator("[data-call-live]")).toContainText("replies are spoken");
+
+  const transcript = [
+    { role: "agent", text: "Thanks for calling." },
+    { role: "caller", text: "When do you open?" },
+  ];
+  expect((await hook("end", { callId, transcript }, "wrong-secret")).status()).toBe(401);
+  expect((await hook("end", { callId, transcript })).status()).toBe(200);
+  // A retry of the same end changes nothing.
+  expect((await hook("end", { callId, transcript })).status()).toBe(200);
+
+  await page.reload();
+  await thread.getByRole("button", { name: /^Read / }).click();
+  const group = thread.locator("[data-call-group]");
+  await expect(group).toHaveCount(1);
+  await expect(thread.locator("[data-call-live]")).toHaveCount(0);
+  await expect(group).toContainText("Call started");
+  await expect(group).toContainText(/Call ended · 1 min · hung up/);
+  await expect(group.locator('[data-call-line="caller"]')).toContainText("📞 by phone");
+  await expect(group.locator('[data-call-line="caller"]')).toContainText("When do you open?");
+
+  // It folds to its one divider, with what it hides counted.
+  await group.getByRole("button", { name: /Hide/ }).click();
+  await expect(group.getByRole("button", { name: /Show 2/ })).toBeVisible();
+  await expect(group.locator("[data-call-line]")).toHaveCount(0);
+
+  await expect(
+    section.locator("[data-voice-account]").locator("[data-voice-last-call]"),
+  ).toHaveText("Last call just now");
+});
+
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {
   await signInAsSeededUser(page);
   await page.goto("/representatives");

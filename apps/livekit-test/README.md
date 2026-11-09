@@ -2,7 +2,7 @@
 
 The reference Voice agent: a program outside the product that holds a phone call on LiveKit and runs the conversation with its own model. It is separate from the pnpm workspace, and nothing in `apps/web` or the packages depends on it.
 
-Until the product serves the voice routes, `src/stand-in-hooks.ts` answers them locally with a fixed Representative.
+It works against the product's voice routes: connect phone calls on a Representative's Channels, then set `VOICE_HOOK_URL` to the Hook URL shown there and `VOICE_HOOK_SECRET` to its secret. To try it with no product running, `src/stand-in-hooks.ts` answers the same routes locally with a fixed Representative.
 
 ## Setup
 
@@ -10,22 +10,28 @@ Until the product serves the voice routes, `src/stand-in-hooks.ts` answers them 
 2. From this folder, install with `pnpm install`.
 3. Create `.env` here:
 
-| Variable                   | Value                                                            |
-| -------------------------- | ---------------------------------------------------------------- |
-| `LIVEKIT_URL`              | From the LiveKit project                                         |
-| `LIVEKIT_API_KEY`          | From the LiveKit project                                         |
-| `LIVEKIT_API_SECRET`       | From the LiveKit project                                         |
-| `VOICE_HOOK_SECRET`        | Any long random string, the same for the agent and the stand-in  |
-| `VOICE_HOOK_URL`           | Optional, default `http://localhost:4100`                        |
-| `VOICE_HOOK_PORT`          | Optional, the stand-in's port, default `4100`                    |
-| `STAND_IN_DECLINE_CALLERS` | Optional, comma-separated `+E.164` numbers the stand-in declines |
-| `LLM_MODEL`                | Optional LiveKit Inference model, default `openai/gpt-5.4-mini`  |
-| `STT_MODEL`                | Optional LiveKit Inference model, default `deepgram/nova-3`      |
-| `TTS_MODEL`                | Optional LiveKit Inference model, default `cartesia/sonic-3`     |
+| Variable                   | Value                                                                      |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `LIVEKIT_URL`              | From the LiveKit project                                                   |
+| `LIVEKIT_API_KEY`          | From the LiveKit project                                                   |
+| `LIVEKIT_API_SECRET`       | From the LiveKit project                                                   |
+| `VOICE_HOOK_SECRET`        | The voice account's secret, or for the stand-in any long string            |
+| `VOICE_HOOK_URL`           | The voice account's Hook URL, default the `http://localhost:4100` stand-in |
+| `VOICE_HOOK_PORT`          | Optional, the stand-in's port, default `4100`                              |
+| `STAND_IN_DECLINE_CALLERS` | Optional, comma-separated `+E.164` numbers the stand-in declines           |
+| `LLM_MODEL`                | Optional LiveKit Inference model, default `openai/gpt-5.4-mini`            |
+| `STT_MODEL`                | Optional LiveKit Inference model, default `deepgram/nova-3`                |
+| `TTS_MODEL`                | Optional LiveKit Inference model, default `cartesia/sonic-3`               |
 
 ## Run
 
-In two terminals, from this folder:
+Against the product, from this folder:
+
+```
+pnpm agent
+```
+
+Against the stand-in, in two terminals:
 
 ```
 pnpm hooks

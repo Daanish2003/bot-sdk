@@ -13,6 +13,7 @@ export function representativeClient(): RepresentativeFeatureClient {
 }
 
 export {
+  callLimitSeconds,
   maxVoiceGreetingLength,
   type CustomerIdentityView,
   type CustomerMergeView,

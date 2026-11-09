@@ -1,6 +1,6 @@
 /**
- * The three routes a Voice agent calls, as `apps/livekit-test` sees them. The product will serve
- * the same contract per voice account; `stand-in-hooks.ts` serves it locally until then.
+ * The three routes a Voice agent calls, as `apps/livekit-test` sees them. The product serves them
+ * per voice account, under its Hook URL; `stand-in-hooks.ts` serves the same contract locally.
  */
 
 export type CallStart =

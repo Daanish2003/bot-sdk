@@ -19,10 +19,11 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { holdCustomers, isMergedAway } from "./customer-merge";
 import { memberIds, standingMergesOf } from "./customer-profile";
 import { fixedReplyKinds } from "../shared/replies";
-import { holdIdentities } from "./customer-proof";
+import { holdIdentities, smsChannel } from "./customer-proof";
 import { customerSummaryKey } from "./customer-summary";
 import type { Heard } from "./customers";
 import {
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -240,6 +241,22 @@ async function removeFromOtherThreads(
         })
         .where(eq(thread.id, id));
     }
+  }
+  // A Call of theirs left on one of those threads names their number; its entry went with their words.
+  const numbers = addresses.filter((each) => each.channel === smsChannel);
+  if (numbers.length > 0) {
+    await tx.delete(representativeCall).where(
+      and(
+        inArray(
+          representativeCall.threadId,
+          tx.select({ id: thread.id }).from(thread).where(inArray(thread.customerId, others)),
+        ),
+        inArray(
+          representativeCall.externalId,
+          numbers.map((each) => each.externalId),
+        ),
+      ),
+    );
   }
   const decision = representativeOutboundDecision;
   await tx
