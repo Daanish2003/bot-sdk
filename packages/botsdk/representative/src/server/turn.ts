@@ -738,7 +738,8 @@ const flagCallTool = "flag_call";
 
 /** The Call this Turn reviews: the newest in its batch. */
 const reviewedCall = (entries: ThreadEntry[]) =>
-  entries.findLast((entry) => entry.author === "call" && !entry.earlier && entry.callId)?.callId;
+  entries.filter((entry) => entry.author === "call" && !entry.earlier && entry.callId).at(-1)
+    ?.callId;
 
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
 export function turnTools(turn: Turn) {
@@ -1305,7 +1306,7 @@ export async function playLoop(
       // By name, so a name off the code-defined list gives nothing.
       const listed = [
         ...new Set<string>([
-          ...content.tools.filter((tool) => tool !== flagCallTool),
+          ...(content.tools as readonly string[]).filter((tool) => tool !== flagCallTool),
           ...alwaysOnTools,
           ...(reviewedCall(entries) ? [flagCallTool] : []),
         ]),
