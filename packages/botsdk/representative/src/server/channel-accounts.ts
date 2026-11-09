@@ -41,16 +41,21 @@ export async function connectChannelAccount(
     representativeId: string;
     platform: string;
     credentials: Record<string, string>;
+    /** Run once the save's transaction holds the Representative; a throw abandons the save. */
+    check?: (tx: Transaction) => Promise<void>;
   },
 ): Promise<ChannelAccountRow> {
-  const { userId, representativeId, platform, credentials } = input;
+  const { userId, representativeId, platform, credentials, check } = input;
   await requireOwned(db, userId, representativeId);
   return channelAccounts.save({
     userId,
     platform,
     credentials,
     // Locked, so a delete of the Representative can't pass this and leave the account behind.
-    lock: (tx) => requireOwned(tx, userId, representativeId, true),
+    lock: async (tx) => {
+      await requireOwned(tx, userId, representativeId, true);
+      await check?.(tx);
+    },
     hold: async (tx, channelAccountId) => {
       await tx
         .insert(representativeChannelAccount)

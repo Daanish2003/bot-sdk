@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
@@ -292,6 +292,66 @@ describe("regenerating the secret", () => {
 });
 
 describe("two saves of one voice account at once", () => {
+  /** A connected account, and a context whose read of its credentials stops until `letGo`. */
+  async function pausedRead() {
+    const { deps, context } = sdk();
+    const { user, client, representativeId } = await anOwner(deps);
+    const connected = await client.representative.voiceAccountConnect({
+      id: representativeId,
+      number: "+15551234567",
+    });
+    const channelAccountId = connected.view.accounts[0]!.id;
+    const input = { userId: user.id, representativeId, channelAccountId };
+    let onRead = () => {};
+    const read = new Promise<void>((resolve) => (onRead = resolve));
+    let letGo = () => {};
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const pausedContext = {
+      ...context,
+      channelAccounts: {
+        ...context.channelAccounts,
+        credentialsOf: async (id: string, platform: string) => {
+          const credentials = await context.channelAccounts.credentialsOf(id, platform);
+          onRead();
+          await held;
+          return credentials;
+        },
+      },
+    } as typeof context;
+    return { client, context, connected, input, pausedContext, read, letGo };
+  }
+
+  it("a greeting saved while the account is removed doesn't bring it back", async () => {
+    const { client, input, pausedContext, read, letGo } = await pausedRead();
+
+    const saving = setVoiceGreeting(pausedContext, { ...input, greeting: "A new greeting" });
+    await read;
+    await client.representative.channelAccountRemove({
+      id: input.representativeId,
+      channelAccountId: input.channelAccountId,
+    });
+    letGo();
+
+    await expect(saving).rejects.toThrow("No such voice account");
+    expect(
+      await getTestDb().select().from(channelAccount).where(eq(channelAccount.platform, "voice")),
+    ).toEqual([]);
+  });
+
+  it("holds no transaction open while it reads, so it never needs a second connection under one", async () => {
+    const { input, pausedContext, read, letGo } = await pausedRead();
+
+    const saving = setVoiceGreeting(pausedContext, { ...input, greeting: "A new greeting" });
+    await read;
+    const { rows } = await getTestDb().execute<{ n: number }>(
+      sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and state = 'idle in transaction'`,
+    );
+    letGo();
+    await saving;
+
+    expect(rows[0]!.n).toBe(0);
+  });
+
   it.each([
     [
       "a regenerate",
@@ -308,48 +368,19 @@ describe("two saves of one voice account at once", () => {
         }),
     ],
   ])("a greeting saved while %s runs can't bring the old secret back", async (_name, other) => {
-    const { deps, context } = sdk();
-    const { user, client, representativeId } = await anOwner(deps);
-    const connected = await client.representative.voiceAccountConnect({
-      id: representativeId,
-      number: "+15551234567",
-    });
-    const channelAccountId = connected.view.accounts[0]!.id;
-    const input = { userId: user.id, representativeId, channelAccountId };
-
-    let read = () => {};
-    const greetingRead = new Promise<void>((resolve) => (read = resolve));
-    let letGo = () => {};
-    const held = new Promise<void>((resolve) => (letGo = resolve));
-    const pausedContext = {
-      ...context,
-      channelAccounts: {
-        ...context.channelAccounts,
-        credentialsOf: async (id: string, platform: string) => {
-          const credentials = await context.channelAccounts.credentialsOf(id, platform);
-          read();
-          await held;
-          return credentials;
-        },
-      },
-    };
+    const { context, connected, input, pausedContext, read, letGo } = await pausedRead();
 
     // The greeting has read the old secret and is about to write it back.
-    const saving = setVoiceGreeting(pausedContext as typeof context, {
-      ...input,
-      greeting: "A new greeting",
-    });
-    await greetingRead;
-    const replaced = other(context, input);
-    // Long enough for an unserialised save to have finished; a serialised one waits on the greeting.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    const saving = setVoiceGreeting(pausedContext, { ...input, greeting: "A new greeting" });
+    await read;
+    const { secret } = await other(context, input);
     letGo();
     await saving;
-    const { secret } = await replaced;
 
-    const final = await context.channelAccounts.credentialsOf(channelAccountId, "voice");
+    const final = await context.channelAccounts.credentialsOf(input.channelAccountId, "voice");
     expect(final!.secret).toBe(secret);
     expect(final!.secret).not.toBe(connected.secret);
+    expect(final!.greeting).toBe("A new greeting");
   });
 });
 
