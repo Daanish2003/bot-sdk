@@ -34,7 +34,7 @@ import {
 } from "./db/schema";
 import { isMergedAway, notMergedAway } from "./customer-merge";
 import { combinedProfilesOf, nameIn, setOwnerValue } from "./customer-profile";
-import { voidProofs } from "./customer-proof";
+import { smsChannel, voidProofs } from "./customer-proof";
 import { grouped } from "./customers";
 import { lastMessageQuery } from "./last-message";
 import { heldWaitingQuery } from "./reply-drafts";
@@ -338,6 +338,18 @@ export async function updateIdentity(
             sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${decision.threadId} and ${representativeThread.customerId} <> ${id} and ${representative.userId} = ${userId})`,
           ),
         );
+      // A delete finds their Calls by number, on any thread a merge has left them on.
+      if (held.channel === smsChannel && channel === smsChannel) {
+        await tx
+          .update(representativeCall)
+          .set({ externalId })
+          .where(
+            and(
+              eq(representativeCall.externalId, held.externalId),
+              sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${representativeCall.threadId} and ${representative.userId} = ${userId})`,
+            ),
+          );
+      }
       // What waits for the owner goes where this Customer now is, as what the thread sends next does.
       await tx
         .update(decision)

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
@@ -18,7 +19,11 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import type { AnyTextAdapter } from "@tanstack/ai";
-import { representativeCustomer, representativeThread } from "../src/server/db/schema";
+import {
+  representativeCall,
+  representativeCustomer,
+  representativeThread,
+} from "../src/server/db/schema";
 import { customerSummaryMarker } from "../src/server/customer-summary";
 import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
@@ -535,6 +540,51 @@ describe("an owner undoing a merge", () => {
 
     const open = (await threadsOf(rpc, id)).filter((each) => each.holder !== "closed");
     expect(open).toEqual([]);
+  });
+
+  it("moves their Calls with a corrected number, wherever a merge has left them", async () => {
+    const { deps } = await instance(quietly(4));
+    const { rpc, id } = await owner(deps);
+    const { ada, bob } = await twoWithThreads(deps, rpc, id);
+    const threads = await threadsOf(rpc, id);
+    const threadOf = (customerId: string) =>
+      threads.find((each) => each.customer.id === customerId)!.id;
+    const [was, now, adasNumber] = ["+15550077", "+15550088", "+15550011"];
+    const added = await rpc.representative.customerAddIdentity({
+      id: bob.id,
+      channel: "sms",
+      externalId: was,
+    });
+    const call = (callId: string, customerId: string, externalId: string) => ({
+      id: uuidv7(),
+      callId,
+      threadId: threadOf(customerId),
+      externalId,
+      startedAt: new Date(),
+    });
+    await getTestDb()
+      .insert(representativeCall)
+      .values([
+        call("on-his-thread", bob.id, was),
+        call("on-her-thread", ada.id, was),
+        call("hers", ada.id, adasNumber),
+      ]);
+
+    await rpc.representative.customerUpdateIdentity({
+      id: bob.id,
+      identityId: added.identities.find((each) => each.externalId === was)!.id,
+      channel: "sms",
+      externalId: now,
+    });
+
+    const calls = await getTestDb()
+      .select({ callId: representativeCall.callId, externalId: representativeCall.externalId })
+      .from(representativeCall);
+    expect(Object.fromEntries(calls.map((each) => [each.callId, each.externalId]))).toEqual({
+      "on-his-thread": now,
+      "on-her-thread": now,
+      hers: adasNumber,
+    });
   });
 
   it("gives back a thread held only because of the merge, and no other", async () => {
