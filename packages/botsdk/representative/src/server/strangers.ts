@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 
 import { representativeChannelAccount } from "./db/schema";
 import { maxThreadMessageLength } from "../shared/contract";
+import type { ChannelProof } from "./verification";
+import { smsChannel } from "./customer-proof";
 import { receiveCustomerMessage } from "./thread-turns";
 
 /*
@@ -18,6 +20,16 @@ function textOf({ text, files }: StrangerMessage) {
       ? ""
       : `(sent ${files.length} ${files.length === 1 ? "file" : "files"}, which wasn't kept)`;
   return [text.trim(), note].filter(Boolean).join("\n\n").slice(0, maxThreadMessageLength);
+}
+
+/**
+ * What the Channel says of the sender: the platform's word when it vouches for senders, and on SMS,
+ * where numbers are spoofed, a code to the number and back (#1359). Any other Channel proves nobody.
+ */
+function proofOf({ channel, sender }: StrangerMessage): ChannelProof | undefined {
+  // A number can be spoofed, whatever the adapter says, so SMS never takes the platform's word.
+  if (channel === smsChannel) return { rule: "codeRoundTrip" };
+  return sender.verified ? { rule: "sameIdentity" } : undefined;
 }
 
 /** Takes the core's inbound message as a Customer's, for the Representative holding its account. */
@@ -36,7 +48,7 @@ export async function receiveStranger(
     channel: message.channel,
     externalId: message.sender.id,
     channelAccountId: message.account.id,
-    proof: message.sender.verified ? { rule: "sameIdentity" } : undefined,
+    proof: proofOf(message),
     message: text,
   });
 }

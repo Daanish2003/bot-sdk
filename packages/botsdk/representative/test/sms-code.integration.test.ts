@@ -1,0 +1,381 @@
+import { batchLongestMs } from "@botsdk/bot/bot/triggers";
+import { saveCredentials } from "@botsdk/bot/models/internal";
+import type { BotSdkPlugin } from "@botsdk/bot/plugin";
+import { job } from "@botsdk/bot/storage";
+import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
+import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
+import { fakeJobClock } from "@ai-chat/test-support/jobs";
+import { chatRpc } from "@ai-chat/test-support/sdk";
+import { autoSource, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
+import { getTestDb } from "@ai-chat/test-support/test-database";
+import { insertUser } from "@ai-chat/test-support/users";
+import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
+import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
+import type { TextOptions } from "@tanstack/ai";
+import { asc, eq } from "drizzle-orm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { connectChannelAccount, heldAccountChannel } from "../src/server/channel-accounts";
+import { customerSummaryMarker } from "../src/server/customer-summary";
+import {
+  representativeCustomerIdentity,
+  representativeThreadMessage,
+} from "../src/server/db/schema";
+import { representativeFeature } from "../src/server/plugin";
+
+/*
+ * An SMS Customer proves they hold their number by a code round trip (ticket #1359): a text from a
+ * held SMS account carries the `codeRoundTrip` rule, `verify_customer` texts the code to the sender's
+ * number through the account that heard them, and the reply that carries it is caught before it is
+ * stored. Over `fakeMessagingAdapter` as the "sms" Channel, with a fake Model on real Postgres.
+ */
+
+vi.setConfig({ testTimeout: 30_000 });
+
+const poll = { timeout: 10_000 };
+const silent = { error: () => {} };
+const model = "openai:gpt-6-luna";
+// 09:00 UTC: outside a Representative's default quiet hours.
+const at = new Date("2026-10-22T09:00:00.000Z");
+const day = 24 * 60 * 60_000;
+
+const replies = (text: string) =>
+  round(
+    toolCall({
+      name: "reply",
+      input: { topic: "general", sources: [autoSource], text, kind: "small_talk" },
+    }),
+  );
+const verifies = () => round(toolCall({ name: "verify_customer", input: {}, id: "verify" }));
+
+const runners: JobRunner[] = [];
+const started: { part: BotSdkPlugin; deps: TestDeps }[] = [];
+
+afterEach(async () => {
+  for (const { part, deps } of started.splice(0)) await part.stop!(deps);
+  for (const runner of runners.splice(0)) await runner.stop();
+});
+
+/** Whether a Model call is the Customer memory pass a closed thread queues, not a Turn's. */
+const isPassCall = (options: TextOptions) =>
+  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
+
+/**
+ * A running instance whose Model plays `rounds` in turn for the Turns (a leap past the idle close
+ * also makes a memory pass, answered apart), and whose SMS account is a fake platform's.
+ */
+async function world(rounds: ReturnType<typeof round>[]) {
+  const channel = fakeMessagingAdapter({ id: "sms" });
+  const turns = [...rounds];
+  const fake = createFakeAdapter({
+    rounds: Array.from(
+      { length: 40 },
+      () => (options: TextOptions) =>
+        isPassCall(options) ? round(text("A summary.")) : turns.shift()!,
+    ),
+  });
+  const timer = fakeJobClock(at);
+  let made: TestDeps | undefined;
+  const jobs = inProcessRunner({
+    db: getTestDb(),
+    logger: silent,
+    drainMs: 50,
+    clock: timer.clock,
+    jobs: () => made!.parts.jobs,
+  });
+  const deps = createTestSdk({
+    jobs,
+    channels: [channel.adapter],
+    features: [representativeFeature()],
+    adapterFor: () => fake.adapter,
+    clock: timer.clock.now,
+    memory: false,
+  });
+  made = deps;
+  await jobs.start();
+  runners.push(jobs);
+  const part = deps.parts.all.find((one) => one.id === "channel")!;
+  await part.start!(deps);
+  started.push({ part, deps });
+
+  const user = await insertUser();
+  await saveCredentials(deps, user.id, {
+    service: "openai",
+    fields: { apiKey: "openai-test-key" },
+    hint: "…-key",
+    verified: true,
+  });
+  const rpc = chatRpc({ user, deps });
+  const context = deps.parts.features.find(
+    ({ feature }) => feature.id === "representative",
+  )!.context;
+  const { id } = await rpc.representative.create({ name: "Front desk" });
+  await rpc.representative.updateDraft({
+    id,
+    draft: { jobText: "Answer questions.", model, tools: ["reply", "verify_customer"] },
+  });
+  await rpc.representative.approve({ id });
+  await rpc.representative.setEnabled({ id, enabled: true });
+  await promoteAutoTopic(id);
+  await connectChannelAccount(context, {
+    userId: user.id,
+    representativeId: id,
+    platform: "sms",
+    credentials: { token: "1:a" },
+  });
+
+  const number = "+15550001";
+  return {
+    channel,
+    fake,
+    timer,
+    rpc,
+    deps,
+    id,
+    /** A Customer on file under the number, with something the Model may only read once they're verified. */
+    knownAs: async () => {
+      const ada = await rpc.representative.customerCreate({ channel: "sms", externalId: number });
+      await rpc.representative.customerProfileSet({
+        id: ada.id,
+        field: "language",
+        value: "Dutch",
+      });
+    },
+    /** The Customer texts the line, and lets the Turn it started run. */
+    texts: async (text: string) => {
+      await expect.poll(() => channel.listening.has("@bot_1"), poll).toBe(true);
+      await channel.deliver("@bot_1", {
+        text,
+        sender: { id: number, handle: number },
+        chat: { id: number, private: true },
+      });
+      timer.advance(batchLongestMs);
+      timer.tick();
+    },
+  };
+}
+
+const threadMessages = () =>
+  getTestDb()
+    .select({
+      author: representativeThreadMessage.author,
+      text: representativeThreadMessage.text,
+      verified: representativeThreadMessage.verified,
+    })
+    .from(representativeThreadMessage)
+    .orderBy(asc(representativeThreadMessage.position));
+
+const identity = async () => (await getTestDb().select().from(representativeCustomerIdentity))[0]!;
+
+/**
+ * Waits until no job is running, so a clock leap can't outlast one's lease: a Turn caught mid-run
+ * would time out and come back only after its retry delay.
+ */
+const settled = () =>
+  expect
+    .poll(
+      async () => (await getTestDb().select().from(job).where(eq(job.status, "running"))).length,
+      poll,
+    )
+    .toBe(0);
+
+/** The Turns' Model calls, without the memory passes. */
+const turnCalls = (fake: { calls: TextOptions[] }) =>
+  fake.calls.filter((call) => !isPassCall(call));
+
+const prompts = (fake: { calls: TextOptions[] }) =>
+  turnCalls(fake).map((call) => JSON.stringify(call.messages));
+
+/** The six-digit code in the text the line sent. */
+const codeSent = (channel: { delivered: { part: string }[] }) =>
+  channel.delivered.map(({ part }) => /\b\d{6}\b/.exec(part)?.[0]).find(Boolean);
+
+/** Each text the line sent that carried a code. */
+const codeTexts = <Text extends { part: string }>(channel: { delivered: Text[] }) =>
+  channel.delivered.filter(({ part }) => /\b\d{6}\b/.test(part));
+
+describe("a code round trip on SMS", () => {
+  it("texts the code to the sender's number through the account that heard them, and stores no message of it", async () => {
+    const { channel, texts } = await world([verifies(), round()]);
+
+    await texts("It is me, Ada");
+
+    await expect.poll(() => codeSent(channel), poll).toMatch(/^\d{6}$/);
+    expect(channel.sends.map(({ account }) => account.handle)).toEqual(["@bot_1"]);
+    expect(channel.delivered.map(({ chatId }) => chatId)).toEqual(["+15550001"]);
+    // The claim came from this number, so the reply that carries the code is what passes it.
+    expect(channel.delivered[0]!.part).toContain("Reply with it");
+    expect(JSON.stringify(await threadMessages())).not.toContain(codeSent(channel)!);
+    expect((await identity()).verifiedContactAt).toBeNull();
+  });
+
+  it("doesn't tell the number's holder to reply when someone elsewhere claimed it", async () => {
+    const { channel, deps, id, texts } = await world([round()]);
+    await texts("Hello");
+    await expect.poll(async () => (await threadMessages()).length, poll).toBeGreaterThan(0);
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+
+    // A sender on another Channel claimed the number, which has an open thread on this line.
+    await heldAccountChannel(feature.context).sendProof(
+      { channel: "sms", externalId: "+15550001" },
+      { kind: "code", secret: "482913" },
+      { representativeId: id },
+    );
+
+    expect(codeSent(channel)).toBe("482913");
+    expect(channel.delivered.at(-1)!.part).not.toContain("Reply");
+  });
+
+  it("verifies the identity by the right code, and the next Turn has the Customer's memory", async () => {
+    const { channel, fake, knownAs, texts } = await world([
+      verifies(),
+      round(),
+      replies("Hello."),
+      round(),
+    ]);
+    await knownAs();
+    await texts("It is me, Ada");
+    await expect.poll(() => codeSent(channel), poll).toBeDefined();
+    const code = codeSent(channel)!;
+    expect(prompts(fake).join("")).not.toContain("Dutch");
+
+    await texts(`here: ${code}`);
+
+    await expect.poll(async () => (await identity()).verifiedContactAt, poll).not.toBeNull();
+    await expect.poll(() => prompts(fake).at(-1), poll).toContain("Dutch");
+    for (const prompt of prompts(fake)) expect(prompt).not.toContain(code);
+    expect(JSON.stringify(await threadMessages())).not.toContain(code);
+  });
+
+  it("unlocks nothing for a wrong code", async () => {
+    const { channel, fake, knownAs, texts } = await world([
+      verifies(),
+      round(),
+      replies("Hello."),
+      round(),
+    ]);
+    await knownAs();
+    await texts("It is me, Ada");
+    await expect.poll(() => codeSent(channel), poll).toBeDefined();
+    const wrong = codeSent(channel) === "000000" ? "111111" : "000000";
+
+    await texts(wrong);
+
+    // The note the wrong code left in the thread shows it was looked at and refused.
+    await expect
+      .poll(async () => (await threadMessages()).map(({ text }) => text).join(" "), poll)
+      .toContain("It was wrong");
+    // The Turn that message started has built its prompt, so the check below can fail.
+    await expect.poll(() => turnCalls(fake).length, poll).toBeGreaterThanOrEqual(3);
+    expect((await identity()).verifiedContactAt).toBeNull();
+    expect(prompts(fake).join("")).not.toContain("Dutch");
+  });
+
+  it("lapses after 90 days without contact, the Customer's memory is shut again, and the number gets no code", async () => {
+    const { channel, fake, timer, knownAs, texts } = await world([
+      verifies(),
+      round(),
+      round(),
+      verifies(),
+      round(),
+    ]);
+    await knownAs();
+    await texts("It is me, Ada");
+    await expect.poll(() => codeSent(channel), poll).toBeDefined();
+    await texts(codeSent(channel)!);
+    await expect.poll(async () => (await identity()).verifiedContactAt, poll).not.toBeNull();
+
+    // The Turn the code started has run its Model call.
+    await expect.poll(() => turnCalls(fake).length, poll).toBe(3);
+    await settled();
+    timer.advance(91 * day);
+    await texts("Back again");
+
+    // Its Turn asked for a code, and ran on: the prompt it built is the one checked below.
+    // A leap makes other jobs due too, so the runner is ticked until the Turn has run.
+    await expect.poll(() => (timer.tick(), turnCalls(fake).length), poll).toBe(5);
+    // Stored state: a 91-day leap also meets the idle job, which moves the message to a new thread.
+    expect((await threadMessages()).findLast(({ author }) => author === "customer")).toMatchObject({
+      text: "Back again",
+      verified: false,
+    });
+    expect(prompts(fake).slice(3).join("")).not.toContain("Dutch");
+    // The standing ended, so the number's next holder must not get a code to prove it: none goes.
+    expect(codeTexts(channel)).toHaveLength(1);
+    expect(await identity()).toMatchObject({ verifiedContactAt: null, lapsedAt: expect.any(Date) });
+  });
+
+  it("doesn't lapse while the Customer keeps texting, verified or not, and texts a code to their number at day 120", async () => {
+    const { channel, fake, timer, knownAs, texts } = await world([
+      verifies(),
+      round(),
+      round(),
+      replies("Sure."),
+      round(),
+      replies("Sure."),
+      round(),
+      verifies(),
+      round(),
+    ]);
+    await knownAs();
+    await texts("It is me, Ada");
+    await expect.poll(() => codeSent(channel), poll).toBeDefined();
+    await texts(codeSent(channel)!);
+    await expect.poll(() => turnCalls(fake).length, poll).toBe(3);
+    await settled();
+
+    // Unverified texts, each long after the hour a code vouches for and within 90 days of the last.
+    for (const [index, days] of [40, 40].entries()) {
+      timer.advance(days * day);
+      await texts(`A question, ${index}`);
+      await expect.poll(() => (timer.tick(), turnCalls(fake).length), poll).toBe(5 + 2 * index);
+      await settled();
+    }
+    timer.advance(40 * day);
+    await texts("About my order");
+
+    await expect.poll(() => (timer.tick(), turnCalls(fake).length), poll).toBe(9);
+    const codes = codeTexts(channel);
+    expect(codes.map(({ chatId }) => chatId)).toEqual(["+15550001", "+15550001"]);
+    expect(await identity()).toMatchObject({ lapsedAt: null, verifiedContactAt: expect.any(Date) });
+  });
+});
+
+describe("a number the owner typed", () => {
+  it("is the identity a text from it reaches, however it was spaced", async () => {
+    const { rpc, texts } = await world([round()]);
+    const ada = await rpc.representative.customerCreate({
+      channel: "sms",
+      externalId: "+1 (555) 0001",
+    });
+
+    await texts("Hello");
+
+    await expect.poll(async () => (await threadMessages()).length, poll).toBeGreaterThan(0);
+    const customers = await rpc.representative.customerList();
+    expect(customers.map(({ id }) => id)).toEqual([ada.id]);
+    expect(customers[0]!.identities.map(({ externalId }) => externalId)).toEqual(["+15550001"]);
+  });
+});
+
+describe("a code a web chat visitor asked for by text (#1361)", () => {
+  it("is texted through the Representative's account to a number that has never written to it, only from the chat window", async () => {
+    const { channel, deps, id } = await world([]);
+    const feature = deps.parts.features.find(({ feature }) => feature.id === "representative")!;
+    const held = heldAccountChannel(feature.context);
+    const to = { channel: "sms", externalId: "+15559990" };
+    await expect.poll(() => channel.listening.has("@bot_1"), poll).toBe(true);
+
+    await held.sendProof(to, { kind: "code", secret: "111111" }, { representativeId: id });
+    expect(channel.delivered).toEqual([]);
+    await held.sendProof(
+      to,
+      { kind: "code", secret: "482913" },
+      { representativeId: id, chatWindow: true },
+    );
+
+    expect(channel.delivered.map(({ chatId }) => chatId)).toEqual(["+15559990"]);
+    expect(codeSent(channel)).toBe("482913");
+    expect(channel.delivered[0]!.part).toContain("chat window");
+  });
+});

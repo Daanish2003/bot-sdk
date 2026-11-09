@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { blocksText } from "@botsdk/client/message-format";
 import { z } from "zod";
 
@@ -139,6 +141,13 @@ export function fakePushProvider(): {
   return { provider, sent, gone, failing };
 }
 
+/** The header the fake platform signs its webhook requests in. */
+const signatureHeader = "x-fake-signature";
+
+/** The fake platform's signature of a webhook body: an HMAC-SHA256 under the account's token. */
+const signatureOf = (token: string, body: string) =>
+  createHmac("sha256", token).update(body).digest("hex");
+
 /** One listener the fake messaging adapter runs: its account, until its signal aborts. */
 type FakeListener = {
   account: MessagingAccount<"token">;
@@ -160,8 +169,15 @@ export function writtenOf({ text, control }: Pick<OutboundMessage, "text" | "con
  * `revoke` also ends a running listener that way. `failures` makes the next listens throw a
  * network error. It splits a Message into parts as a platform does (`parts`): what it writes in pieces of
  * at most `maxText` characters, then one part per file, each its own message in `delivered`.
+ * With `webhook`, it has no listener: the platform posts to the account's webhook route instead,
+ * and `webhookRequest` makes a request signed as the platform would (ticket #1355). With
+ * `verifiesSender`, it declares that its senders can't be spoofed, which a Bot's account needs.
  */
-export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
+export function fakeMessagingAdapter({
+  id = "fake",
+  webhook = false,
+  verifiesSender = false,
+}: { id?: string; webhook?: boolean; verifiesSender?: boolean } = {}) {
   const listening = new Map<string, FakeListener>();
   /** Each send, with what the fake reported it sent. */
   const sends: {
@@ -188,43 +204,70 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
   const delivered: { chatId: string; messageId: string; part: string }[] = [];
   let nextMessageId = 1;
 
+  /** An update as the fake sends it: its fields defaulted to a private text message. */
+  const updateOf = (update: Partial<MessagingUpdate>): MessagingUpdate => ({
+    sourceId: String(nextMessageId++),
+    sender: { id: "1001", handle: "@ada" },
+    chat: { id: "1001", private: true },
+    text: "",
+    files: [],
+    ...update,
+  });
+
   const botOf = (token: string) => {
     const platformBotId = token.split(":")[0] ?? token;
     return { platformBotId, handle: `@bot_${platformBotId}` };
   };
 
+  const listen: MessagingAdapter<"token">["listen"] = (account, { signal, receive }) => {
+    counts.listens += 1;
+    if (counts.failures > 0) {
+      counts.failures -= 1;
+      return Promise.reject(new Error("fetch failed: ECONNRESET"));
+    }
+    if (rejected.has(account.credentials.token)) {
+      return Promise.reject(new CredentialsRejectedError("Unauthorized"));
+    }
+    return new Promise<void>((resolve, reject) => {
+      const listener: FakeListener = {
+        account,
+        receive,
+        reject: (reason) => {
+          listening.delete(account.handle);
+          reject(new CredentialsRejectedError(reason));
+        },
+      };
+      listening.set(account.handle, listener);
+      signal.addEventListener("abort", () => {
+        if (listening.get(account.handle) === listener) listening.delete(account.handle);
+        resolve();
+      });
+    });
+  };
+
+  /** Its webhook: the body is the account's updates as JSON, signed in `x-fake-signature`. */
+  const readWebhook: MessagingAdapter<"token">["webhook"] = async (account, { headers, body }) => {
+    if (headers.get(signatureHeader) !== signatureOf(account.credentials.token, body)) {
+      return { rejected: "The signature is wrong" };
+    }
+    try {
+      const updates: unknown = JSON.parse(body);
+      if (Array.isArray(updates)) return { updates: updates as MessagingUpdate[] };
+    } catch {
+      // Answered as any other body it can't read.
+    }
+    return { rejected: "The body isn't a list of updates" };
+  };
+
   const adapter: MessagingAdapter<"token"> = {
     kind: "messaging",
     id,
+    ...(verifiesSender && { verifiesSender }),
     credentialFields: ["token"],
     limits: { download: 20 * 1024 * 1024, upload: 50 * 1024 * 1024 },
     check: async ({ token }) =>
       rejected.has(token) || !token.includes(":") ? { rejected: "Unauthorized" } : botOf(token),
-    listen: (account, { signal, receive }) => {
-      counts.listens += 1;
-      if (counts.failures > 0) {
-        counts.failures -= 1;
-        return Promise.reject(new Error("fetch failed: ECONNRESET"));
-      }
-      if (rejected.has(account.credentials.token)) {
-        return Promise.reject(new CredentialsRejectedError("Unauthorized"));
-      }
-      return new Promise<void>((resolve, reject) => {
-        const listener: FakeListener = {
-          account,
-          receive,
-          reject: (reason) => {
-            listening.delete(account.handle);
-            reject(new CredentialsRejectedError(reason));
-          },
-        };
-        listening.set(account.handle, listener);
-        signal.addEventListener("abort", () => {
-          if (listening.get(account.handle) === listener) listening.delete(account.handle);
-          resolve();
-        });
-      });
-    },
+    ...(webhook ? { webhook: readWebhook } : { listen }),
     send: async (account, message) => {
       if (rejected.has(account.credentials.token))
         throw new CredentialsRejectedError("Unauthorized");
@@ -296,14 +339,24 @@ export function fakeMessagingAdapter({ id = "fake" }: { id?: string } = {}) {
     deliver: async (handle: string, update: Partial<MessagingUpdate> = {}) => {
       const listener = listening.get(handle);
       if (!listener) throw new Error(`Nothing listens to ${handle}`);
-      await listener.receive({
-        sourceId: String(nextMessageId++),
-        sender: { id: "1001", handle: "@ada" },
-        chat: { id: "1001", private: true },
-        text: "",
-        files: [],
-        ...update,
-      });
+      await listener.receive(updateOf(update));
+    },
+    /**
+     * A request posting `updates` (each defaulted as `deliver` does) to `url`, the account's
+     * webhook route, signed with `token` as the platform would; `signature` replaces the
+     * signature, and `null` leaves it out.
+     */
+    webhookRequest: (
+      url: string,
+      token: string,
+      updates: Partial<MessagingUpdate>[] = [{}],
+      { signature }: { signature?: string | null } = {},
+    ) => {
+      const body = JSON.stringify(updates.map(updateOf));
+      const headers = new Headers({ "content-type": "application/json" });
+      const signed = signature === undefined ? signatureOf(token, body) : signature;
+      if (signed !== null) headers.set(signatureHeader, signed);
+      return new Request(url, { method: "POST", headers, body });
     },
   };
 }

@@ -111,6 +111,9 @@ async function receiveOnce(
     }
     return;
   }
+  // A spoofable sender could speak as the user, so such an account never wakes a Bot. Saving one on a
+  // Bot is refused; this keeps one saved before the platform stopped verifying senders silent.
+  if (adapter.verifiesSender !== true) return drop("its platform can't verify the sender");
   const [owner] = await sdk.db
     .select({
       botId: bot.id,

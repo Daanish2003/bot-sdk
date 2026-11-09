@@ -78,7 +78,7 @@ async function ownerWithPages({ quota }: { quota?: { budgetUsd: number } } = {})
   const timer = fakeJobClock(at);
   const brain = createFakeAdapter({ rounds: [round(text("Hello"))] });
   const logged: string[] = [];
-  const telegram = fakeMessagingAdapter({ id: "telegram" });
+  const telegram = fakeMessagingAdapter({ id: "telegram", verifiesSender: true });
   const email = fakeEmailProvider();
   const push = fakePushProvider();
   let deps: TestDeps | undefined;

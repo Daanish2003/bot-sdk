@@ -4,6 +4,7 @@ import { createDb } from "@ai-chat/db";
 import { createHttpHandler, createScreenSocket } from "@botsdk/bot/http";
 import { createBotSdk } from "@botsdk/bot";
 import { redisRuntime, redisStore } from "@botsdk/pubsub-redis";
+import { sms } from "@botsdk/channel-sms";
 import { telegram } from "@botsdk/channel-telegram";
 import { emailChannel } from "@botsdk/bot/channel";
 import { fakeImageAdapter } from "@botsdk/bot/models";
@@ -14,7 +15,7 @@ import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { emailProviderOf } from "./email-provider";
 import { webPushChannelsOf } from "./push-channel";
-import { ENV, ssrfAllowHosts } from "./env.server";
+import { ENV, smsApiBase, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
 import {
@@ -138,6 +139,9 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
     // Telegram (spec #1044): the tokens are per Channel account, so it needs no Host env.
     telegram(),
+    // SMS (spec #1174): Telnyx, or the lab phone when SMS_API_BASE points at it. The keys and the
+    // number are per Channel account.
+    sms({ apiBase: smsApiBase }),
     // Web push (spec #1024): on only with the Host's VAPID key pair (VAPID_*).
     ...webPushChannelsOf({
       VAPID_PUBLIC_KEY: ENV.VAPID_PUBLIC_KEY,

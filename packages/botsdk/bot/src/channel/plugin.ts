@@ -160,6 +160,16 @@ export type ChannelApi = {
    * conversation and has no reply window.
    */
   reach: (platform: string) => MessagingReach | undefined;
+  /**
+   * Each messaging platform the Host offers, in its order, with the credential fields an account on
+   * it takes and those of them that aren't secret.
+   */
+  platforms: () => { platform: string; fields: string[]; plainFields: string[] }[];
+  /**
+   * Where `platform`'s platform posts account `accountId`'s updates: `<appUrl><basePath>/channels/<platform>/<accountId>`.
+   * Null for a platform that listens instead, or while the instance has no app URL or base path.
+   */
+  webhookUrl: (platform: string, accountId: string) => string | null;
   /** The user's Linked identities on the messaging Channels (spec #1044). */
   identities: LinkedIdentitiesApi;
 };

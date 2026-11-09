@@ -172,7 +172,7 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
     (reach.canStartConversation === false && businessStarted) ||
     (reach.replyWindowHours !== undefined &&
       (hoursSinceHeard === null || hoursSinceHeard > reach.replyWindowHours)) ||
-    (reach.maxLength !== undefined && length > reach.maxLength)
+    (reach.maxLength !== undefined && !reach.cutsLongMessages && length > reach.maxLength)
       ? holdsWhenLimited
         ? "hold"
         : "drop"

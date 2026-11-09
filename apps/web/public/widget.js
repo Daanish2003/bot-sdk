@@ -76,26 +76,26 @@
   const restart = element("button", { type: "button", hidden: "" }, "Start a new chat");
 
   /*
-   * Verifying by a code sent to an email address on record (ticket #1350): the address and the code
+   * Verifying by a code sent to an email address or phone number on record (tickets #1350, #1361): the address or number and the code
    * go only to their own routes, never into the chat, so no Model reads them.
    */
   const verifyButton = element(
     "button",
     { type: "button", class: "verify", hidden: "" },
-    "Verify by email",
+    "Verify by email or text",
   );
   /** Whether the visitor passed a code on this page, which hides the button until their session ends. */
   let verified = false;
   const emailField = element("input", {
-    type: "email",
-    "aria-label": "Your email address",
-    autocomplete: "email",
+    type: "text",
+    "aria-label": "Your email address or phone number",
+    autocomplete: "off",
   });
   const emailForm = element("form", { hidden: "" });
   emailForm.append(emailField, element("button", { type: "submit" }, "Send code"));
   const codeField = element("input", {
     type: "text",
-    "aria-label": "Code from the email",
+    "aria-label": "Code we sent",
     autocomplete: "one-time-code",
     inputmode: "numeric",
   });
@@ -319,20 +319,24 @@
 
   emailForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const email = emailField.value.trim();
-    if (!email || !token) return;
+    const given = emailField.value.trim();
+    if (!given || !token) return;
     try {
-      const response = await post("code", { token, email });
+      // An address has an "@"; anything else is taken as a number, and the server says if it is not.
+      const response = await post("code", {
+        token,
+        ...(given.includes("@") ? { email: given } : { phone: given }),
+      });
       if (response.status === 401) return end();
       if (response.status === 202) {
         // The same whatever the address: the route never says whether it is on record.
-        say("If that address is on record, we've emailed a code to it. Enter it below.");
+        say("If that address or number is on record, we've sent a code to it. Enter it below.");
         verifyStep("code");
         codeField.focus();
       } else if (response.status === 429) {
         tooFast(response);
       } else {
-        say("Enter an email address.");
+        say("Enter an email address, or a phone number with its country code.");
       }
     } catch {
       say("Couldn't ask for a code. Try again.");

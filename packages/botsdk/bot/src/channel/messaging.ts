@@ -132,6 +132,9 @@ export type SentMessage = {
  */
 export type SendProgress = { parts: number; pieces?: number; sent: SentMessage };
 
+/** One request a platform posted to a webhook route: its headers and its raw body, unparsed. */
+export type MessagingWebhookRequest = { headers: Headers; body: string };
+
 /** What every adapter call gets: the SDK's `fetch` and, when it can be stopped, a signal. */
 export type MessagingCall = { fetch: typeof fetch; signal?: AbortSignal };
 
@@ -147,6 +150,11 @@ export type MessagingReach = {
   replyWindowHours?: number;
   /** The most characters of one message the Outbound gate lets through. Left out, any length. */
   maxLength?: number;
+  /**
+   * True when the adapter cuts a longer message to `maxLength` itself, saying so. The gate then lets it
+   * through, as a cut message is still the reply; left out, a longer one is held.
+   */
+  cutsLongMessages?: boolean;
 };
 
 /**
@@ -168,6 +176,11 @@ export type MessagingAdapter<Field extends string = string> = MessagingReach & {
   verifiesSender?: boolean;
   /** The credentials a Channel account takes, by field name, such as `["token"]`. */
   credentialFields: readonly Field[];
+  /**
+   * The fields of `credentialFields` that aren't secret, such as a phone number, which a form shows
+   * as typed. Left out, every field is secret. They are stored encrypted all the same.
+   */
+  plainCredentialFields?: readonly Field[];
   /** The platform's file limits, in bytes: what `download` can fetch, and what `send` can send. */
   limits: { download: number; upload: number };
   /**
@@ -181,7 +194,7 @@ export type MessagingAdapter<Field extends string = string> = MessagingReach & {
   /**
    * Listens for the account's updates (Telegram: long polling) and hands each to `receive`, one at
    * a time, confirming it to the platform only once `receive` resolves. Resolves once `signal`
-   * aborts. An adapter whose platform only posts to a webhook has none.
+   * aborts. An adapter whose platform only posts to a webhook has none, and has `webhook` instead.
    */
   listen?(
     account: MessagingAccount<Field>,
@@ -190,6 +203,19 @@ export type MessagingAdapter<Field extends string = string> = MessagingReach & {
       receive: (update: MessagingUpdate) => Promise<void>;
     },
   ): Promise<void>;
+  /**
+   * Reads one request the platform posted to the account's webhook route (ticket #1355), for a
+   * platform that only posts to a webhook (Telnyx): checks its signature over the raw body and
+   * headers, and turns it into the account's updates (none for an event that isn't a message). A
+   * request it refuses (a bad or missing signature, a body it can't read) gives `rejected`, and
+   * the core stores nothing. The core dedupes each update by its `sourceId`. An adapter declares
+   * this or `listen`, never both.
+   */
+  webhook?(
+    account: MessagingAccount<Field>,
+    request: MessagingWebhookRequest,
+    call: MessagingCall,
+  ): Promise<{ updates: MessagingUpdate[] } | { rejected: string }>;
   /** Sends one Message, split and converted as the platform needs, and reports what it sent. */
   send(
     account: MessagingAccount<Field>,

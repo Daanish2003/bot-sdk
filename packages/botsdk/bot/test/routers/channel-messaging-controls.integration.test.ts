@@ -65,7 +65,7 @@ const rule = { text: "Open pull requests without asking", mode: "without_asking"
 async function telegramBot(rounds: Round[], { email = true }: { email?: boolean } = {}) {
   const timer = fakeJobClock(at);
   const brain = createFakeAdapter({ rounds });
-  const fake = fakeMessagingAdapter({ id: "telegram" });
+  const fake = fakeMessagingAdapter({ id: "telegram", verifiesSender: true });
   const logged: string[] = [];
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({

@@ -39,6 +39,9 @@ const sendLimitWindowMs = 60 * 60_000;
 /** The Channel a web chat visitor writes from. Nothing can send to it: they read their thread. */
 export const webChatChannel = "web";
 
+/** The Channel of a text-message account. Its senders can be spoofed, so a code to the number proves them. */
+export const smsChannel = "sms";
+
 /** What a Channel is given to send: a code to read back, or the token of a link to open. */
 export type Proof = { kind: "code" | "link"; secret: string };
 
@@ -60,12 +63,13 @@ export type CustomerChannel = {
   ) => Promise<void>;
   /**
    * Sends a proof from the Representative's side of the thread; `via` names the Representative, and
-   * says when a web chat visitor asked for the code in the chat window (#1350), to be entered there.
+   * says when a web chat visitor asked for the code in the chat window (#1350), to be entered there,
+   * and when the claim came from `to` itself (`fromTarget`), whose reply then carries the code.
    */
   sendProof: (
     to: { channel: string; externalId: string },
     proof: Proof,
-    via: { representativeId: string; chatWindow?: boolean },
+    via: { representativeId: string; chatWindow?: boolean; fromTarget?: boolean },
   ) => Promise<void>;
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
   reach?: (channel: string) => MessagingReach | undefined;
@@ -118,7 +122,7 @@ export const noProofAnswer = {
  */
 export const webChatProofAnswer = {
   answer:
-    'Offer the visitor a code by email: they press "Verify by email" in the chat window and enter an email address on record. If it can receive a code, one is sent there, and they enter it in the chat window. Do not ask for the address or the code here, and do not say whether any address is on record.',
+    'Offer the visitor a code by email or text: they press "Verify by email or text" in the chat window and enter an email address or phone number on record. If it can receive a code, one is sent there, and they enter it in the chat window. Do not ask for the address, number or code here, and do not say whether any is on record.',
 };
 export const alreadyVerifiedAnswer = {
   answer: "This sender is already verified, so no proof is needed.",
