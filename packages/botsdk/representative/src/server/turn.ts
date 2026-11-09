@@ -176,6 +176,10 @@ const senderStanding = (verified: boolean) => ({
 const spokeAsCustomer = ({ author }: Pick<ThreadEntry, "author">) =>
   author === "customer" || author === "call";
 
+/** No new word of the Customer's is in a Turn's batch, such as a Bot's result to tell. */
+const startedByBusiness = (entries: ThreadEntry[]) =>
+  !entries.some((entry) => spokeAsCustomer(entry) && !entry.earlier);
+
 /** Whether all a Turn has to answer is a finished Call, which nobody is waiting on a reply to. */
 const answersOnlyACall = (entries: ThreadEntry[]) => {
   const owed = entries.filter((entry) => !entry.earlier);
@@ -319,7 +323,7 @@ type LiveThread = {
   /** No new Customer message is in this Turn's batch, such as a Bot's result to tell: the business starts it. */
   businessStarted: boolean;
   /** All this Turn answers is a finished Call. */
-  followsCall: boolean;
+  followsCall?: boolean;
 };
 
 /**
@@ -691,8 +695,7 @@ async function handOffFromStore(
     releaseId,
     channel,
     refusals: [],
-    businessStarted: !entries.some((entry) => spokeAsCustomer(entry) && !entry.earlier),
-    followsCall: answersOnlyACall(entries),
+    businessStarted: startedByBusiness(entries),
   };
   const turn: HandOffTurn = {
     job: services,
@@ -1377,7 +1380,7 @@ export function representativeTurnJob(
             releaseId,
             channel: channelOf(job),
             refusals,
-            businessStarted: !entries.some((entry) => spokeAsCustomer(entry) && !entry.earlier),
+            businessStarted: startedByBusiness(entries),
             followsCall: answersOnlyACall(entries),
           };
           const played = await playLoop(job, {

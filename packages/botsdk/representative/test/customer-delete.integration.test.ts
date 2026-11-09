@@ -421,7 +421,12 @@ describe("deleting a Customer", () => {
 
   describe("what an undone merge left of them was owed", () => {
     /** Ada's thread with Bob's words on it, a limit and the owner's list owing them from `waitingFrom`. */
-    async function owed(adaIsAnswered: boolean, waitingFrom: number, between?: StoredReplyKind) {
+    async function owed(
+      adaIsAnswered: boolean,
+      waitingFrom: number,
+      between?: StoredReplyKind,
+      adaCalled = false,
+    ) {
       const answer = () =>
         round(
           toolCall({
@@ -443,6 +448,17 @@ describe("deleting a Customer", () => {
       await settle(threadIdleMs);
       const shared = (await threadsOfCustomers([ada.id])).find((row) => row.state === "closed")!;
       const noted = new Date();
+      if (adaCalled) {
+        await getTestDb()
+          .update(representativeThreadMessage)
+          .set({ author: "call" })
+          .where(
+            and(
+              eq(representativeThreadMessage.threadId, shared.id),
+              eq(representativeThreadMessage.position, 1),
+            ),
+          );
+      }
       if (between) {
         // Code's fixed words between Ada's question and Bob's, in the place they would have had.
         await getTestDb()
@@ -493,6 +509,12 @@ describe("deleting a Customer", () => {
         expect(row.leftForOwnerAt).not.toBeNull();
       },
     );
+
+    it("keeps both while someone else's Call is still owed", async () => {
+      const row = await owed(false, 1, undefined, true);
+      expect(row.waitingFrom).toBe(1);
+      expect(row.leftForOwnerAt).not.toBeNull();
+    });
 
     it("keeps both while someone else's words are still owed", async () => {
       const row = await owed(false, 1);

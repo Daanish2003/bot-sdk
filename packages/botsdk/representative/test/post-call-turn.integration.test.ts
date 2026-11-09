@@ -19,12 +19,14 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import { autoSource, promoteAutoTopic } from "@ai-chat/test-support/test-customer";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
-import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { createFakeAdapter, round, runError, toolCall } from "@botsdk/testing/fake-adapter";
 import { fakeMessagingAdapter } from "@botsdk/testing/fake-channel";
 import { type CustomerChannel, noCustomerChannel } from "../src/server/customer-proof";
 import {
   representative,
   representativeChannelAccount,
+  representativeCustomer,
+  representativeCustomerIdentity,
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeThread,
@@ -32,6 +34,7 @@ import {
 } from "../src/server/db/schema";
 import { inboundLimit } from "../src/server/inbound-limit";
 import { representativeFeature } from "../src/server/plugin";
+import { waitingElsewhere } from "../src/server/reply-drafts";
 import { capReached } from "../src/server/spending";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
 import { voice } from "../src/server/voice-adapter";
@@ -91,9 +94,25 @@ afterEach(async () => {
  */
 async function world(
   rounds: Rounds = [],
-  { accounts = false, reach = smsReach }: { accounts?: boolean; reach?: MessagingReach } = {},
+  {
+    accounts = false,
+    reach = smsReach,
+    beforeModel,
+  }: {
+    accounts?: boolean;
+    reach?: MessagingReach;
+    /** Runs as each Model call starts, so a Call can end during a Turn. */
+    beforeModel?: () => Promise<void>;
+  } = {},
 ) {
   const fake = createFakeAdapter({ rounds });
+  const representativeAdapter: AnyTextAdapter = {
+    ...(fake.adapter as AnyTextAdapter),
+    chatStream: async function* (options) {
+      await beforeModel?.();
+      yield* fake.adapter.chatStream(options);
+    },
+  };
   const botFake = createFakeAdapter({ rounds: [round(), round(), round()] });
   const timer = fakeJobClock(noon);
   const texts: string[] = [];
@@ -117,7 +136,8 @@ async function world(
     jobs,
     channels: [voice(), messaging.adapter],
     features: [representativeFeature({}, accounts ? undefined : recording)],
-    adapterFor: (id) => (id === botModel ? botFake.adapter : fake.adapter) as AnyTextAdapter,
+    adapterFor: (id) =>
+      id === botModel ? (botFake.adapter as AnyTextAdapter) : representativeAdapter,
     clock: timer.clock.now,
     keyEncryptionSecrets: [key],
     memory: false,
@@ -305,6 +325,7 @@ describe("the Turn a finished Call wakes", () => {
     expect(prompt).toContain("Send a technician on Tuesday");
     expect(prompt).toContain("after 3pm");
     expect(prompt).toMatch(/voice agent's model[^"]*may be mis-heard/);
+    expect(prompt).toContain("The phone call above has finished");
   });
 
   it("can end with nothing sent, and code neither texts them nor makes work of it", async () => {
@@ -351,6 +372,98 @@ describe("the Turn a finished Call wakes", () => {
     expect(prompt).toContain("isn't verified");
   });
 
+  it("ends its prompt on a Call that came during the last Turn, after that Turn's reply", async () => {
+    let during: (() => Promise<void>) | undefined;
+    const { text, callStarts, callEnds, settle, fake } = await world(
+      [replies("Hi there"), quiet, quiet],
+      {
+        beforeModel: async () => {
+          const go = during;
+          during = undefined;
+          await go?.();
+        },
+      },
+    );
+    await callStarts();
+    during = () => callEnds();
+    await text("Hello");
+
+    await settle();
+    await settle();
+
+    const prompt = JSON.stringify(fake.calls.at(-1)!.messages);
+    expect(prompt.indexOf("Caller: My AC is broken.")).toBeGreaterThan(prompt.indexOf("Hi there"));
+  });
+
+  it("doesn't start for a blocked caller", async () => {
+    const { callStarts, callEnds, turns, threadRow, entries } = await world();
+    await callStarts();
+    await getTestDb()
+      .update(representativeCustomer)
+      .set({ blockedAt: noon })
+      .where(eq(representativeCustomer.id, (await threadRow()).customerId));
+
+    await callEnds();
+
+    expect((await entries()).map((entry) => entry.author)).toEqual(["call"]);
+    expect(await turns()).toEqual([]);
+  });
+
+  it("doesn't start for a caller who opted out", async () => {
+    const { callStarts, callEnds, turns, entries } = await world();
+    await callStarts();
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ optedOutAt: noon })
+      .where(eq(representativeCustomerIdentity.externalId, caller));
+
+    await callEnds();
+
+    expect((await entries()).map((entry) => entry.author)).toEqual(["call"]);
+    expect(await turns()).toEqual([]);
+  });
+
+  it("runs on a thread at a limit, while the Call is fresh", async () => {
+    const { callStarts, callEnds, threadId, settle, fake } = await world([quiet]);
+    await callStarts();
+    await getTestDb()
+      .update(representativeThread)
+      .set({ limitNotedAt: noon })
+      .where(eq(representativeThread.id, await threadId()));
+
+    await callEnds();
+    await settle();
+
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("failing, leaves the caller alone: code neither texts them nor makes work of it", async () => {
+    const { calls, settle, entries, assignments, turns, threadRow } = await world(
+      Array.from({ length: 10 }, () => round(runError("The Provider is down"))),
+    );
+
+    await calls();
+    for (let tries = 0; tries < 6; tries++) await settle(3_600_000);
+
+    expect((await turns()).map((turn) => turn.status)).toEqual(["failed"]);
+    await expect.poll(async () => (await threadRow()).turnId, { timeout: 10_000 }).toBeNull();
+    expect((await entries()).map((entry) => entry.author)).toEqual(["call"]);
+    expect(await assignments()).toEqual([]);
+  });
+
+  it("passes the Call on to the Bot with a text code hands off", async () => {
+    const { text, callStarts, callEnds, settle, assignments } = await world([quiet]);
+    await callStarts();
+    await text("Hello");
+    await callEnds();
+
+    await settle();
+
+    expect(await assignments()).toMatchObject([
+      { instructions: expect.stringContaining("Caller: My AC is broken.") },
+    ]);
+  });
+
   it("answers apart from a verified text that waits with it", async () => {
     const { text, calls, settle, fake } = await world([quiet, quiet]);
     await text("Please check my account", { rule: "sameIdentity" });
@@ -363,6 +476,7 @@ describe("the Turn a finished Call wakes", () => {
     const [first, second] = fake.calls.map((call) => JSON.stringify(call.messages));
     expect(first).toContain("Please check my account");
     expect(first).not.toContain("My AC is broken.");
+    expect(first).not.toContain("The phone call above has finished");
     expect(second).toContain("My AC is broken.");
     expect(second).toContain("isn't verified");
   });
@@ -544,6 +658,60 @@ describe("for the counters a Call is the Customer's word", () => {
 
     const [replaced] = await getTestDb().select().from(representativeHeldMessage);
     expect(replaced!.resolution).toBe("replaced");
+  });
+
+  it("outdates a draft whose Turn it came during", async () => {
+    let during: (() => Promise<void>) | undefined;
+    const { text, callStarts, callEnds, settle } = await world(
+      [round(replyCall("Probably Tuesday", undefined, "scheduling")), quiet, quiet],
+      {
+        beforeModel: async () => {
+          const go = during;
+          during = undefined;
+          await go?.();
+        },
+      },
+    );
+    await callStarts();
+    during = () => callEnds();
+    await text("When can you come?");
+
+    await settle();
+
+    const [draft] = await getTestDb().select().from(representativeHeldMessage);
+    expect(draft!.resolution).toBe("replaced");
+  });
+
+  it("makes the next draft's holding note due again", async () => {
+    const { text, settle, calls, decisions } = await world([
+      round(replyCall("Probably Tuesday", undefined, "scheduling")),
+      quiet,
+      round(replyCall("Tuesday it is", undefined, "scheduling")),
+      quiet,
+    ]);
+    await text("When can you come?");
+    await settle();
+
+    await calls();
+    await settle();
+
+    expect((await decisions()).filter(([kind]) => kind === "holding_note")).toEqual([
+      ["holding_note", "send", "passed"],
+      ["holding_note", "send", "passed"],
+    ]);
+  });
+
+  it("waits apart from another sender's", async () => {
+    const { callStarts, callEnds, threadId } = await world();
+    await callStarts();
+    await callEnds();
+    const id = await threadId();
+
+    const elsewhere = await getTestDb().transaction((tx) =>
+      waitingElsewhere(tx, id, 1, { channel: "sms", externalId: "+15559999" }),
+    );
+
+    expect(elsewhere).toBe(1);
   });
 
   it("makes the Customer a stranger for the spending caps", async () => {
