@@ -11,6 +11,7 @@ import {
   normalizedRelease,
   type ReleaseContent,
 } from "../shared/contract";
+import { queueCallLost } from "./call-lost";
 import { smsChannel } from "./customer-proof";
 import { holdSender } from "./customers";
 import {
@@ -160,7 +161,7 @@ async function recordCall(
     if (thread!.createdAt.getTime() === now.getTime()) {
       await queueIdleCheck(context, tx, threadId, now);
     }
-    await tx
+    const [added] = await tx
       .insert(representativeCall)
       .values({
         id: uuidv7(),
@@ -170,7 +171,10 @@ async function recordCall(
         externalId: heard.externalId,
         startedAt: now,
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: representativeCall.id });
+    // Only a Call this keeps gets its closing job, so a repeated start queues no second one.
+    if (added) await queueCallLost(context, tx, added.id, now);
     return true;
   });
 }

@@ -2,8 +2,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
-import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
+import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { maxThreadMessageLength, noNul } from "../shared/contract";
 import { transcriptText } from "./call-transcript";
 import { smsChannel } from "./customer-proof";
@@ -39,22 +39,36 @@ const callEndBody = z.object({
   ),
 });
 
+/** A Call as the end finds it: its thread, caller and owner. */
+export type CallToEnd = {
+  id: string;
+  threadId: string;
+  externalId: string;
+  userId: string;
+};
+
 /**
- * Adds a finished Call to its thread as one entry, in `tx`, once its status has changed, so a repeat
- * adds nothing, and wakes the Turn that reviews it, as a Bot's result does. On a thread the owner took
- * over the entry waits for them and no Turn runs; a blocked or opted-out caller gets no Turn either.
+ * Closes `call` in `tx` with its `call` entry reading `text`, and says whether it did: a Call already
+ * closed, or whose thread a delete has taken, adds nothing. Every end goes through here, a Voice agent's
+ * and a lost Call's alike (ticket #1387), and wakes the Turn that reviews it, as a Bot's result does. On
+ * a thread the owner took over the entry waits for them and no Turn runs; a blocked or opted-out caller
+ * gets no Turn either.
  */
-async function addCallEntry(
+export async function closeCall(
   services: Pick<FeatureContext, "db" | "clock" | "jobs">,
   tx: Transaction,
-  thread: NonNullable<Awaited<ReturnType<typeof tryLockThread>>>,
-  call: { threadId: string; externalId: string; userId: string },
-  { messageId, text, now }: { messageId: string; text: string; now: Date },
+  now: Date,
+  call: CallToEnd,
+  { status, text }: { status: "ended" | "ended_no_transcript"; text: string },
 ) {
   const { threadId, externalId } = call;
-  const nowSql = sql`${now.toISOString()}::timestamp`;
-  const [identity] = await tx
-    .select({ optedOutAt: representativeCustomerIdentity.optedOutAt })
+  // The caller's Customer before their thread, as for a message: a delete holds it, then looks for
+  // their words on every thread, and the status below finds a Call that delete has taken.
+  const [caller] = await tx
+    .select({
+      customerId: representativeCustomerIdentity.customerId,
+      optedOutAt: representativeCustomerIdentity.optedOutAt,
+    })
     .from(representativeCustomerIdentity)
     .where(
       and(
@@ -63,7 +77,25 @@ async function addCallEntry(
         eq(representativeCustomerIdentity.externalId, externalId),
       ),
     );
-  const wakes = thread.state === "representative" && !thread.blockedAt && !identity?.optedOutAt;
+  if (caller) {
+    await tx
+      .select({ id: representativeCustomer.id })
+      .from(representativeCustomer)
+      .where(eq(representativeCustomer.id, caller.customerId))
+      .for("key share");
+  }
+  // The thread's lock first, as a delete and a merge take it before the rows under it.
+  const thread = await tryLockThread(tx, call.userId, threadId);
+  if (!thread) return false;
+  const messageId = uuidv7();
+  const [ended] = await tx
+    .update(representativeCall)
+    .set({ status, endedAt: now, messageId })
+    .where(and(eq(representativeCall.id, call.id), eq(representativeCall.status, "in_progress")))
+    .returning({ id: representativeCall.id });
+  if (!ended) return false;
+  const nowSql = sql`${now.toISOString()}::timestamp`;
+  const wakes = thread.state === "representative" && !thread.blockedAt && !caller?.optedOutAt;
   const [updated] = await tx
     .update(representativeThread)
     .set({
@@ -84,7 +116,7 @@ async function addCallEntry(
     threadId,
     position: updated!.position,
     author: "call",
-    text,
+    text: text.slice(0, maxThreadMessageLength),
     // Every caller is unverified: the number is only what the vendor reports.
     verified: false,
     heldForOwner: thread.state === "owner",
@@ -103,6 +135,7 @@ async function addCallEntry(
   } else if (thread.state === "owner") {
     await queueOwnerWait(services, tx, threadId, now);
   }
+  return true;
 }
 
 /** Ends the Call `callId` on `account` with its transcript. An unknown or finished Call changes nothing. */
@@ -129,40 +162,7 @@ async function endCall(
         ),
       );
     if (!call) return;
-    // The caller's Customer before their thread, as for a message: a delete holds it, then looks for
-    // their words on every thread, and the status below finds a Call that delete has taken.
-    const [caller] = await tx
-      .select({ customerId: representativeCustomerIdentity.customerId })
-      .from(representativeCustomerIdentity)
-      .where(
-        and(
-          eq(representativeCustomerIdentity.userId, call.userId),
-          eq(representativeCustomerIdentity.channel, smsChannel),
-          eq(representativeCustomerIdentity.externalId, call.externalId),
-        ),
-      );
-    if (caller) {
-      await tx
-        .select({ id: representativeCustomer.id })
-        .from(representativeCustomer)
-        .where(eq(representativeCustomer.id, caller.customerId))
-        .for("key share");
-    }
-    // The thread's lock first, as a delete and a merge take it before the rows under it.
-    const thread = await tryLockThread(tx, call.userId, call.threadId);
-    if (!thread) return;
-    const messageId = uuidv7();
-    const [ended] = await tx
-      .update(representativeCall)
-      .set({ status: "ended", endedAt: now, messageId })
-      .where(and(eq(representativeCall.id, call.id), eq(representativeCall.status, "in_progress")))
-      .returning({ id: representativeCall.id });
-    if (!ended) return;
-    await addCallEntry(context, tx, thread, call, {
-      messageId,
-      text: transcriptText(transcript).slice(0, maxThreadMessageLength),
-      now,
-    });
+    await closeCall(context, tx, now, call, { status: "ended", text: transcriptText(transcript) });
   });
   return { ok: true };
 }

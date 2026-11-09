@@ -400,7 +400,7 @@ function withRecordedRequests(text: string, requests: RecordedRequest[] | null) 
     ({ request, callback, emergency }) =>
       `- ${request}${callback ? ` (callback: ${callback})` : ""}${emergency ? " [emergency]" : ""}`,
   );
-  return `${text}\n\nRequests the caller made, as the voice agent recorded them:\n${lines.join("\n")}`;
+  return `Requests the caller made, as the voice agent recorded them:\n${lines.join("\n")}\n\n${text}`;
 }
 
 /**
@@ -428,7 +428,15 @@ export async function readThread(
       requests: representativeCall.requests,
     })
     .from(representativeThreadMessage)
-    .leftJoin(representativeCall, eq(representativeCall.messageId, representativeThreadMessage.id))
+    .leftJoin(
+      representativeCall,
+      and(
+        eq(representativeCall.threadId, representativeThreadMessage.threadId),
+        eq(representativeCall.messageId, representativeThreadMessage.id),
+        // A lost Call's entry already carries them.
+        eq(representativeCall.status, "ended"),
+      ),
+    )
     .where(
       and(
         eq(representativeThreadMessage.threadId, threadId),
@@ -447,7 +455,7 @@ export async function readThread(
   const kept: typeof newest = [];
   let chars = 0;
   for (const entry of newest) {
-    chars += entry.text.length;
+    chars += withRecordedRequests(entry.text, entry.requests).length;
     if (chars > threadPromptChars) break;
     kept.push(entry);
   }
@@ -499,6 +507,10 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 export const heldNote =
   "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, quiet hours, or the Channel's limits), so nothing was sent now. The owner sends or drops it, or, if quiet hours held it, it goes when they end. Do not send it again.";
 
+/** A reply the gate dropped because there is no account to send it by. Other work can still be done. */
+export const noAccountNote =
+  "No text was sent: this Representative has no text-message account. If something needs doing, hand it to the Bot; otherwise end the Turn.";
+
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
  * sends it, stores it and sends it. Not to whoever was heard last: an unverified identity writing
@@ -515,7 +527,6 @@ export async function storeReply(
     releaseId,
     refusals,
     businessStarted,
-    followsCall,
   }: {
     threadId: string;
     upTo: number;
@@ -525,8 +536,6 @@ export async function storeReply(
     refusals?: GateRefusal[];
     /** The Turn answers no new Customer message: quiet hours hold what it says. */
     businessStarted?: boolean;
-    /** The Turn only follows up a Call: without a text account, what it says goes nowhere. */
-    followsCall?: boolean;
   },
   { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
@@ -547,7 +556,6 @@ export async function storeReply(
     pages: services.pages,
     jobs: services.jobs,
     businessStarted,
-    followsCall,
     channel: services.channel,
     content: { text, verified, replyKind, sources, topic },
   });
@@ -564,6 +572,7 @@ export async function storeReply(
     };
   }
   if (decision?.outcome === "hold") return { error: heldNote };
+  if (decision?.outcome === "drop" && decision.rule === "channel") return { error: noAccountNote };
   if (decision?.outcome !== "send")
     return {
       error:

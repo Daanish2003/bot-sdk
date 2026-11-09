@@ -42,6 +42,7 @@ import { pageNoBot, queueAssignmentDue } from "./stalled-work";
 import {
   type Heard,
   heldNote,
+  noAccountNote,
   holdThreadCustomer,
   readSender,
   readThread,
@@ -322,8 +323,6 @@ type LiveThread = {
   refusals: GateRefusal[];
   /** No new Customer message is in this Turn's batch, such as a Bot's result to tell: the business starts it. */
   businessStarted: boolean;
-  /** All this Turn answers is a finished Call. */
-  followsCall?: boolean;
 };
 
 /**
@@ -524,7 +523,9 @@ async function handOffInCode(
     now,
   );
   // Held, it waits for the owner to send, so the work it promises still goes to the Bot.
-  if ("error" in stored && stored.error !== heldNote) return { handedOff: false };
+  if ("error" in stored && stored.error !== heldNote && stored.error !== noAccountNote) {
+    return { handedOff: false };
+  }
   // A Turn telling a Bot's result doesn't send the work round again: the owner has it from here.
   const relaying = entries.some((entry) => entry.author === "bot" && !entry.earlier);
   if (!botId) {
@@ -602,15 +603,19 @@ async function turnSentNothing(
  * step, so a replay does it once, and the same check of the thread as a reply's, so nothing goes on a
  * thread the owner took.
  */
-async function handOffAtEnd(turn: Omit<HandOffTurn, "job"> & Pick<Turn, "job">, atLimit: boolean) {
+async function handOffAtEnd(
+  turn: Omit<HandOffTurn, "job"> & Pick<Turn, "job">,
+  atLimit: boolean,
+  reviewed: boolean,
+) {
   const { job, representativeId, thread, progress } = turn;
   // Code has dealt with these already: its hand-off on a second refusal, or the script.
   if (isOver(progress)) return false;
   const refusalLeft = progress.refusals === 1;
   // A limit's note tells them instead.
   if (atLimit && !refusalLeft) return false;
-  // A Call is finished, and a Turn that finds nothing to follow up says nothing.
-  if (!refusalLeft && answersOnlyACall(turn.entries)) return false;
+  // A Call is finished, and a Turn that reviewed it and found nothing to follow up says nothing.
+  if (!refusalLeft && reviewed && answersOnlyACall(turn.entries)) return false;
   // A test conversation has no Customer, and its checks read what the Model itself did.
   if (thread === null) return refusalLeft;
   const now = await job.now();
@@ -707,7 +712,7 @@ async function handOffFromStore(
     entries,
     progress: { ...newProgress(), handedOff: handOff !== undefined },
   };
-  if (answersOnlyACall(entries) || !(await turnSentNothing(tx, representativeId, thread))) return;
+  if (!(await turnSentNothing(tx, representativeId, thread))) return;
   const { handedOff, made } = await handOffInCode(turn, tx, services.clock());
   return handedOff ? { turn, made } : undefined;
 }
@@ -1301,7 +1306,11 @@ export async function playLoop(
   return {
     ...played,
     testRun: {
-      handedOffAtEnd: await handOffAtEnd(turn, played.capped || played.quotaSpent),
+      handedOffAtEnd: await handOffAtEnd(
+        turn,
+        played.capped || played.quotaSpent,
+        !played.timedOut && !played.stepLimit,
+      ),
       evidence: progress.evidence,
     },
   };
@@ -1381,7 +1390,6 @@ export function representativeTurnJob(
             channel: channelOf(job),
             refusals,
             businessStarted: startedByBusiness(entries),
-            followsCall: answersOnlyACall(entries),
           };
           const played = await playLoop(job, {
             userId,

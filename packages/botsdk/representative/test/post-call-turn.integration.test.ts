@@ -36,6 +36,8 @@ import { inboundLimit } from "../src/server/inbound-limit";
 import { representativeFeature } from "../src/server/plugin";
 import { waitingElsewhere } from "../src/server/reply-drafts";
 import { capReached } from "../src/server/spending";
+import { turnStepLimit } from "../src/server/turn";
+import { callEndDueMs } from "../src/server/call-lost";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
 import { voice } from "../src/server/voice-adapter";
 
@@ -437,18 +439,65 @@ describe("the Turn a finished Call wakes", () => {
     expect(fake.calls).toHaveLength(1);
   });
 
-  it("failing, leaves the caller alone: code neither texts them nor makes work of it", async () => {
-    const { calls, settle, entries, assignments, turns, threadRow } = await world(
-      Array.from({ length: 10 }, () => round(runError("The Provider is down"))),
-    );
+  it("failing, still gets the Call to the Bot, requests first, though no text can go", async () => {
+    const { callStarts, hook, settle, entries, assignments, turns, threadRow, decisions } =
+      await world(
+        Array.from({ length: 10 }, () => round(runError("The Provider is down"))),
+        { accounts: true },
+      );
+    await callStarts();
+    await hook("request", {
+      callId: "call-1",
+      request: "Call me about my refund",
+      emergency: false,
+    });
+    await hook("end", {
+      callId: "call-1",
+      transcript: [{ role: "caller", text: "a".repeat(4_000) }],
+    });
 
-    await calls();
     for (let tries = 0; tries < 6; tries++) await settle(3_600_000);
 
     expect((await turns()).map((turn) => turn.status)).toEqual(["failed"]);
     await expect.poll(async () => (await threadRow()).turnId, { timeout: 10_000 }).toBeNull();
+    expect(await decisions()).toEqual([["code_hand_off", "drop", "channel"]]);
     expect((await entries()).map((entry) => entry.author)).toEqual(["call"]);
-    expect(await assignments()).toEqual([]);
+    expect(await assignments()).toMatchObject([
+      { instructions: expect.stringContaining("Call me about my refund") },
+    ]);
+  });
+
+  it("that runs out of Steps still gets the Call to the Bot", async () => {
+    const { calls, settle, assignments } = await world(
+      Array.from({ length: turnStepLimit + 2 }, (_, index) =>
+        round(replyCall("Following up.", `reply-${index}`)),
+      ),
+      { accounts: true },
+    );
+
+    await calls();
+    await settle();
+
+    expect(await assignments()).toHaveLength(1);
+  });
+
+  it("is woken by a Call that never ended, whose requests it reads once", async () => {
+    const { callStarts, hook, settle, fake, entries } = await world([quiet]);
+    await callStarts();
+    await hook("request", {
+      callId: "call-1",
+      request: "Call me about my refund",
+      emergency: false,
+    });
+
+    await settle(callEndDueMs + 1_000);
+    await settle();
+
+    expect((await entries()).map((entry) => entry.author)).toEqual(["call"]);
+    expect(fake.calls).toHaveLength(1);
+    const prompt = JSON.stringify(fake.calls[0]!.messages);
+    expect(prompt).toContain("The call ended without a transcript.");
+    expect(prompt.split("Call me about my refund")).toHaveLength(2);
   });
 
   it("passes the Call on to the Bot with a text code hands off", async () => {
@@ -531,6 +580,31 @@ describe("the follow-up text", () => {
     expect((await entries()).map((entry) => entry.author)).toEqual(["call"]);
     expect((await threadRow()).turnId).toBeNull();
     expect((await turns()).map((turn) => turn.status)).toEqual(["succeeded"]);
+  });
+
+  it("is dropped rather than held for the owner when a cap is reached and no account can send it", async () => {
+    const { rpc, id, threadId, callStarts, callEnds, settle, decisions } = await world(
+      [replies("Following up."), quiet],
+      { accounts: true },
+    );
+    await rpc.representative.setCaps({ id, maxPerDay: 1 });
+    await callStarts();
+    await getTestDb()
+      .insert(representativeOutboundDecision)
+      .values({
+        id: uuidv7(),
+        threadId: await threadId(),
+        kind: "reply",
+        outcome: "send",
+        rule: "passed",
+        channel: "sms",
+        externalId: caller,
+        createdAt: noon,
+      });
+    await callEnds();
+    await settle();
+
+    expect((await decisions()).at(-1)).toEqual(["reply", "drop", "channel"]);
   });
 
   it("goes through the SMS account when the Representative holds one", async () => {
