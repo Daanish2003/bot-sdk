@@ -654,6 +654,113 @@ describe("deleting a Customer", () => {
     );
   });
 
+  describe("a thread of another Customer's holding a Call of theirs", () => {
+    /** Bob's Call on Ada's thread, which by then holds nothing else, as a Call after an undone merge leaves it. */
+    const onAdasThread = async () => {
+      const owner = await instance();
+      const { say, customerAt, settle } = owner;
+      await say("Ada speaks.", adaNumber);
+      await say("Bob speaks.", bobNumber);
+      await settle();
+      const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
+      const [thread] = await threadsOfCustomers([ada.id]);
+      await getTestDb()
+        .delete(representativeThreadMessage)
+        .where(eq(representativeThreadMessage.threadId, thread!.id));
+      await getTestDb()
+        .update(representativeThread)
+        .set({ lastExternalId: bobNumber })
+        .where(eq(representativeThread.id, thread!.id));
+      await getTestDb()
+        .insert(representativeCustomerIdentity)
+        .values({
+          id: uuidv7(),
+          userId: owner.user.id,
+          customerId: bob.id,
+          channel: "sms",
+          externalId: bobNumber,
+        })
+        .onConflictDoNothing();
+      const call = (externalId: string) => ({
+        id: uuidv7(),
+        callId: externalId,
+        threadId: thread!.id,
+        externalId,
+        startedAt: new Date(),
+      });
+      return { ...owner, ada, bob, thread: thread!, call };
+    };
+
+    it("goes when that Call is all it held", async () => {
+      const { rpc, ada, bob, call } = await onAdasThread();
+      await getTestDb().insert(representativeCall).values(call(bobNumber));
+
+      await rpc.representative.customerDelete({ id: bob.id });
+
+      expect(await threadsOfCustomers([ada.id])).toEqual([]);
+      expect(await getTestDb().select().from(representativeCall)).toEqual([]);
+    });
+
+    it("stays, naming the other caller, while someone else's Call is on it", async () => {
+      const { rpc, ada, bob, thread, call } = await onAdasThread();
+      await getTestDb()
+        .insert(representativeCall)
+        .values([call(bobNumber), call(adaNumber)]);
+
+      await rpc.representative.customerDelete({ id: bob.id });
+
+      const [kept] = await threadsOfCustomers([ada.id]);
+      expect(kept?.id).toBe(thread.id);
+      const [row] = await getTestDb()
+        .select({ lastExternalId: representativeThread.lastExternalId })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, thread.id));
+      expect(row?.lastExternalId).toBe(adaNumber);
+      expect(
+        (await getTestDb().select().from(representativeCall)).map((each) => each.externalId),
+      ).toEqual([adaNumber]);
+    });
+
+    it("takes the thread's lock before the Call's", async () => {
+      const { rpc, bob, thread, call } = await onAdasThread();
+      await getTestDb().insert(representativeCall).values(call(bobNumber));
+      let deleting: Promise<unknown> | undefined;
+
+      await getTestDb().transaction(async (holder) => {
+        await holder
+          .select({ id: representativeThread.id })
+          .from(representativeThread)
+          .where(eq(representativeThread.id, thread.id))
+          .for("update");
+        deleting = rpc.representative.customerDelete({ id: bob.id });
+        await expect
+          .poll(
+            async () => {
+              const { rows } = await getTestDb().execute<{ n: number }>(
+                sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+              );
+              return rows[0]!.n;
+            },
+            { timeout: 10_000 },
+          )
+          .toBeGreaterThan(0);
+        // It waits on the thread still free of the Call's row, so a Call's end can't deadlock with it.
+        await expect(
+          getTestDb().transaction((tx) =>
+            tx
+              .select({ id: representativeCall.id })
+              .from(representativeCall)
+              .where(eq(representativeCall.externalId, bobNumber))
+              .for("update", { noWait: true }),
+          ),
+        ).resolves.toHaveLength(1);
+      });
+      await deleting;
+
+      expect(await getTestDb().select().from(representativeCall)).toEqual([]);
+    });
+  });
+
   it("removes a thread of another Customer's that held only their words", async () => {
     const owner = await instance();
     const { rpc, say, customerAt, settle } = owner;
