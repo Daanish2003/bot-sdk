@@ -173,14 +173,24 @@ export async function sourcesBelongToLabel(
 }
 
 /** The names a Turn may label a reply with. Never each one's mode: it isn't the Model's to aim for. */
-export async function topicNames(db: FeatureContext["db"], userId: string) {
-  const rows = await db
-    .select({ name: topic.name })
+const topicsForPrompt = (db: FeatureContext["db"], userId: string) =>
+  db
+    .select({ name: topic.name, mode: topic.mode })
     .from(topic)
     .where(eq(topic.userId, userId))
     .orderBy(asc(topic.createdAt), asc(topic.id))
     .limit(topicsPromptLimit);
-  return rows.map(({ name }) => name);
+
+export async function topicNames(db: FeatureContext["db"], userId: string) {
+  return (await topicsForPrompt(db, userId)).map(({ name }) => name);
+}
+
+/** The owner's topic names by how a reply on each goes, for a Call's prompt. */
+export async function topicNamesByMode(db: FeatureContext["db"], userId: string) {
+  const rows = await topicsForPrompt(db, userId);
+  const named = (mode: TopicMode) =>
+    rows.filter((row) => row.mode === mode).map(({ name }) => name);
+  return { auto: named("auto"), draft: named("draft") };
 }
 
 export async function exportTopics(tx: Transaction, userId: string) {

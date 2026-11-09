@@ -6,6 +6,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import {
   draftRule,
   representative,
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeRelease,
@@ -678,6 +679,26 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       ),
     (row) => row.threadId,
   );
+  const calls = grouped(
+    await tx
+      .select({
+        threadId: representativeCall.threadId,
+        callId: representativeCall.callId,
+        startedAt: representativeCall.startedAt,
+        endedAt: representativeCall.endedAt,
+        status: representativeCall.status,
+        requests: representativeCall.requests,
+      })
+      .from(representativeCall)
+      .innerJoin(representativeThread, eq(representativeThread.id, representativeCall.threadId))
+      .innerJoin(
+        representativeCustomer,
+        eq(representativeCustomer.id, representativeThread.customerId),
+      )
+      .where(eq(representativeCustomer.userId, userId))
+      .orderBy(asc(representativeCall.startedAt), asc(representativeCall.id)),
+    (row) => row.threadId,
+  );
   return customers.map(({ id, blockedAt, createdAt }) => ({
     id,
     name: nameIn(profiles.get(id)),
@@ -712,6 +733,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         assignmentId: message.assignmentId,
         createdAt: message.createdAt,
       })),
+      calls: (calls.get(thread.id) ?? []).map(({ threadId: _threadId, ...call }) => call),
     })),
   }));
 }

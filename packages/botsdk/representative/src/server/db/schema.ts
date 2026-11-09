@@ -856,3 +856,36 @@ export const representativeChannelAccount = botsdkSchema.table(
     index("representative_channel_account_representative_id_idx").on(table.representativeId),
   ],
 );
+
+/** Where a Call stands: on the line, ended with its transcript, or never heard the end of. */
+export type CallStatus = "in_progress" | "ended" | "ended_no_transcript";
+
+/** What a caller wanted, as the Voice agent's one tool stored it during the Call. */
+export type RecordedRequest = { request: string; callback?: string; emergency: boolean };
+
+/**
+ * A phone call a Representative's Voice agent answered (ticket #1382, ADR 0036). `callId` is the
+ * vendor's id, unique per voice account so a retry adds nothing and no account can take another's id.
+ * It goes with its thread; a voice account removed later leaves the Call on the record without one.
+ */
+export const representativeCall = botsdkSchema.table(
+  "representative_call",
+  {
+    id: uuid("id").primaryKey(),
+    callId: text("call_id").notNull(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    channelAccountId: uuid("channel_account_id").references((): AnyPgColumn => channelAccount.id, {
+      onDelete: "set null",
+    }),
+    startedAt: timestamp("started_at").notNull(),
+    endedAt: timestamp("ended_at"),
+    status: text("status").$type<CallStatus>().notNull().default("in_progress"),
+    requests: jsonb("requests").$type<RecordedRequest[]>().notNull().default([]),
+  },
+  (table) => [
+    unique("representative_call_call_id").on(table.channelAccountId, table.callId),
+    index("representative_call_thread_idx").on(table.threadId),
+  ],
+);
