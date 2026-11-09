@@ -19,7 +19,12 @@ import { parsedBody } from "./web-chat";
 export const callIdField = z.string().min(1).max(255).refine(noNul);
 
 /** The voice account a hook is for. */
-export type VoiceHookAccount = { id: string; representativeId: string; greeting: string };
+export type VoiceHookAccount = {
+  id: string;
+  representativeId: string;
+  number: string;
+  greeting: string;
+};
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest();
 
@@ -46,6 +51,7 @@ async function voiceHookAccount(
   return {
     id: accountId,
     representativeId: held.representativeId,
+    number: credentials.number ?? "",
     greeting: credentials.greeting ?? defaultVoiceGreeting,
   };
 }

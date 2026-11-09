@@ -1,15 +1,17 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { untrustedBlock } from "@botsdk/bot/bot/routines";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
+import { channelAccount } from "@botsdk/bot/storage";
 import { identityAddress, normalizedRelease, type ReleaseContent } from "../shared/contract";
 import { smsChannel } from "./customer-proof";
 import { holdSender } from "./customers";
 import {
   representative,
   representativeCall,
+  representativeChannelAccount,
   representativeRelease,
   representativeThread,
 } from "./db/schema";
@@ -69,9 +71,9 @@ function callPrompt(
             (key) => key,
           ),
         ]),
-    ...(topics.auto.length === 0
-      ? []
-      : [topicsBlock("The topics you may answer on this call:", topics.auto)]),
+    topics.auto.length === 0
+      ? "There are no topics you may answer yet: to every question, say someone will confirm by text."
+      : topicsBlock("The topics you may answer on this call:", topics.auto),
     ...(topics.draft.length === 0
       ? []
       : [
@@ -86,8 +88,9 @@ function callPrompt(
 
 /**
  * Keeps an answered Call: the caller's Customer, made if they're a stranger as on a text Channel, the
- * thread open between them and the Representative, and one row for the call id, however often it's
- * started. False when the Representative has gone since it was asked. A caller is unverified, so
+ * thread open between them and the Representative, and one row for the call id: a repeated start
+ * changes nothing. A thread this opens replies through the SMS account on the number called, if the
+ * Representative holds one. False when the Representative has gone since it was asked. A caller is unverified, so
  * nothing about the thread's address changes for an existing one.
  */
 async function recordCall(
@@ -100,6 +103,16 @@ async function recordCall(
   }: { callId: string; heard: { channel: string; externalId: string }; now: Date },
 ) {
   return context.db.transaction(async (tx) => {
+    const [known] = await tx
+      .select({ id: representativeCall.id })
+      .from(representativeCall)
+      .where(
+        and(
+          eq(representativeCall.channelAccountId, account.id),
+          eq(representativeCall.callId, callId),
+        ),
+      );
+    if (known) return true;
     const [owner] = await tx
       .select({ userId: representative.userId })
       .from(representative)
@@ -107,6 +120,20 @@ async function recordCall(
       .for("key share");
     if (!owner) return false;
     const { customerId } = await holdSender(tx, owner.userId, heard, "", now);
+    const [paired] = await tx
+      .select({ id: channelAccount.id })
+      .from(representativeChannelAccount)
+      .innerJoin(
+        channelAccount,
+        eq(channelAccount.id, representativeChannelAccount.channelAccountId),
+      )
+      .where(
+        and(
+          eq(representativeChannelAccount.representativeId, account.representativeId),
+          eq(channelAccount.platform, smsChannel),
+          eq(channelAccount.platformBotId, account.number),
+        ),
+      );
     const [thread] = await tx
       .insert(representativeThread)
       .values({
@@ -115,6 +142,7 @@ async function recordCall(
         representativeId: account.representativeId,
         lastChannel: heard.channel,
         lastExternalId: heard.externalId,
+        channelAccountId: paired?.id,
         createdAt: now,
         updatedAt: now,
       })
@@ -125,10 +153,12 @@ async function recordCall(
           updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
         },
       })
-      .returning({ id: representativeThread.id, messageCount: representativeThread.messageCount });
+      .returning({ id: representativeThread.id, createdAt: representativeThread.createdAt });
     const threadId = thread!.id;
-    // A thread with no message yet has no closing job. Each is keyed by when it's due, so a repeat adds none.
-    if (thread!.messageCount === 0) await queueIdleCheck(context, tx, threadId, now);
+    // Only the Call that opens a thread gives it its closing job.
+    if (thread!.createdAt.getTime() === now.getTime()) {
+      await queueIdleCheck(context, tx, threadId, now);
+    }
     await tx
       .insert(representativeCall)
       .values({ id: uuidv7(), callId, threadId, channelAccountId: account.id, startedAt: now })
@@ -143,10 +173,10 @@ async function startCall(
   account: VoiceHookAccount,
   { callId, caller }: z.infer<typeof callStartBody>,
 ) {
-  const number = voiceNumber(caller);
+  const number = voiceNumber(identityAddress(smsChannel, caller));
   // A withheld or malformed number is nobody we could follow up with.
   if (!number) return decline;
-  const heard = { channel: smsChannel, externalId: identityAddress(smsChannel, number) };
+  const heard = { channel: smsChannel, externalId: number };
   const { representativeId } = account;
   const now = context.clock();
   if ((await declineReason(context.db, { representativeId, heard, now })) !== null) return decline;

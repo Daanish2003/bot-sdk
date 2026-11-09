@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
 import { toNodeHandler } from "@botsdk/bot/http";
+import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
+import { job, channelAccount } from "@botsdk/bot/storage";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -17,6 +19,7 @@ import { noCustomerChannel } from "../src/server/customer-proof";
 import {
   representative,
   representativeCall,
+  representativeChannelAccount,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeThread,
@@ -214,12 +217,14 @@ describe("who is calling", () => {
   });
 
   it("finds them however the number was written", async () => {
-    const { texts, start, identityRows } = await world();
+    const { texts, start, identityRows, calls } = await world();
     await texts("Hello");
 
     await start("call-1", "+1 (555) 0002");
+    await start("call-2", "0015550002");
 
     expect(await identityRows()).toHaveLength(1);
+    expect(await calls()).toHaveLength(2);
   });
 
   it("declines a caller with no usable number", async () => {
@@ -368,7 +373,8 @@ describe("what the Voice agent is told", () => {
     const { instructions } = await start();
 
     expect(instructions).not.toContain("Published facts");
-    expect(instructions).not.toContain("you may answer on this call");
+    expect(instructions).not.toContain("The topics you may answer on this call:");
+    expect(instructions).toContain("There are no topics you may answer yet");
     expect(instructions).not.toContain("confirm these by text");
   });
 
@@ -406,6 +412,62 @@ describe("what the Voice agent is told", () => {
   );
 });
 
+/** An SMS account the Representative holds on that number, as the database has it. */
+async function holdSms(representativeId: string, smsNumber: string) {
+  const accountId = uuidv7();
+  const now = new Date();
+  await getTestDb().transaction(async (tx) => {
+    await tx.insert(channelAccount).values({
+      id: accountId,
+      botId: null,
+      platform: "sms",
+      platformBotId: smsNumber,
+      handle: smsNumber,
+      encrypted: encryptCredentials(
+        { apiKey: "k", publicKey: "p", number: smsNumber },
+        { secrets: [key], kind: "channel", context: `${accountId}:sms` },
+      ),
+      status: "active",
+      reason: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await tx
+      .insert(representativeChannelAccount)
+      .values({ channelAccountId: accountId, representativeId });
+  });
+  return accountId;
+}
+
+describe("the thread a Call opens", () => {
+  it("replies through the SMS account on the number that was called", async () => {
+    const scene = await world();
+    await holdSms(scene.id, "+15559990000");
+    const paired = await holdSms(scene.id, "+15551234567");
+
+    await scene.start();
+
+    const [thread] = await getTestDb()
+      .select({ channelAccountId: representativeThread.channelAccountId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, (await scene.calls())[0]!.threadId));
+    expect(thread!.channelAccountId).toBe(paired);
+  });
+
+  it("names no account when no SMS account has that number", async () => {
+    const scene = await world();
+    await holdSms(scene.id, "+15559990000");
+
+    await scene.start();
+
+    const [thread] = await getTestDb()
+      .select({ channelAccountId: representativeThread.channelAccountId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, (await scene.calls())[0]!.threadId));
+    expect(thread!.channelAccountId).toBeNull();
+  });
+});
+
 describe("the Call's row", () => {
   it("records an answered Call on its thread and voice account", async () => {
     const { start, calls, accountId, threadOf } = await world();
@@ -428,10 +490,12 @@ describe("the Call's row", () => {
     const { start, calls } = await world();
 
     const first = await start();
+    const jobsAfterFirst = (await getTestDb().select().from(job)).length;
     const again = await start();
 
     expect(again).toEqual(first);
     expect(await calls()).toHaveLength(1);
+    expect(await getTestDb().select().from(job)).toHaveLength(jobsAfterFirst);
   });
 
   it("is in the owner's export, and goes with the owner's data", async () => {
