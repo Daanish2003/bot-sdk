@@ -10,13 +10,14 @@ import { toNodeHandler } from "@botsdk/bot/http";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
-import { job } from "@botsdk/bot/storage";
+import { job, page } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
+import { callEndDueMs } from "../src/server/call-lost";
 import { noCustomerChannel } from "../src/server/customer-proof";
 import { maxThreadMessageLength } from "../src/shared/contract";
 import {
@@ -519,5 +520,83 @@ describe("what the owner sees", () => {
     await callStarts("call-2");
 
     expect(await lastCall()).toEqual(new Date(start.getTime() + 3_600_000));
+  });
+});
+
+describe("a Call with no end", () => {
+  const pages = () => getTestDb().select().from(page);
+  const dropped = async () => {
+    const w = await world();
+    await w.callStarts();
+    return w;
+  };
+
+  it("is closed as ended, no transcript, with its entry and a Page to the owner", async () => {
+    const w = await dropped();
+    await w.settle(callEndDueMs - 60_000);
+    expect((await w.calls())[0]).toMatchObject({ status: "in_progress", endedAt: null });
+    expect(await w.entries()).toEqual([]);
+    expect(await pages()).toEqual([]);
+
+    await w.settle(120_000);
+
+    const [call] = await w.calls();
+    expect(call).toMatchObject({ status: "ended_no_transcript" });
+    expect(call!.endedAt).toEqual(new Date(start.getTime() + callEndDueMs + 60_000));
+    expect(await w.entries()).toMatchObject([
+      { position: 1, author: "call", verified: false, channel: "sms", externalId: caller },
+    ]);
+    expect(await pages()).toMatchObject([
+      { userId: w.user.id, cause: "call_not_ended", urgency: "routine" },
+    ]);
+  });
+
+  it("carries the requests recorded before it dropped", async () => {
+    const w = await dropped();
+    const sent = await w.hook("request", {
+      callId: "call-1",
+      request: "Book a repair visit",
+      callback: "after 5pm",
+      emergency: false,
+    });
+    expect(sent.status).toBe(200);
+
+    await w.settle(callEndDueMs + 60_000);
+
+    const [entry] = await w.entries();
+    expect(entry!.text).toContain("Book a repair visit");
+    expect(entry!.text).toContain("after 5pm");
+  });
+
+  it("leaves a Call that ended normally alone", async () => {
+    const w = await dropped();
+    await w.callEnds(said);
+
+    await w.settle(callEndDueMs * 2);
+
+    expect((await w.calls())[0]).toMatchObject({ status: "ended" });
+    expect((await w.entries()).map((entry) => entry.text)).toEqual([saidAsText]);
+    expect(await pages()).toEqual([]);
+  });
+
+  it("takes a call end arriving after it as a repeat, adding no second entry", async () => {
+    const w = await dropped();
+    await w.settle(callEndDueMs + 60_000);
+
+    await w.callEnds(said);
+
+    expect(await w.entries()).toHaveLength(1);
+    expect((await w.calls())[0]).toMatchObject({ status: "ended_no_transcript" });
+  });
+
+  it("queues one job however many times the Call is started", async () => {
+    const w = await world();
+    const before = await w.jobCount();
+    await w.callStarts();
+    const once = await w.jobCount();
+    await w.callStarts();
+
+    expect(await w.jobCount()).toBe(once);
+    expect(once).toBeGreaterThan(before);
   });
 });
