@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
 import { toNodeHandler } from "@botsdk/bot/http";
 import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
-import { job, channelAccount } from "@botsdk/bot/storage";
+import { job, channelAccount, page } from "@botsdk/bot/storage";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -140,6 +140,7 @@ async function world(number = "+15551234567") {
     id,
     user,
     accountId,
+    url,
     secret: connected.secret,
     release,
     texts,
@@ -538,5 +539,81 @@ describe("a bad request", () => {
     expect((await post({ caller })).status).toBe(400);
     expect((await post({ callId: "", caller })).status).toBe(400);
     expect(await calls()).toEqual([]);
+  });
+});
+
+describe("record_request (ticket #1383)", () => {
+  const record = (
+    w: Awaited<ReturnType<typeof world>>,
+    body: unknown,
+    secret: string | null = w.secret,
+    account = w.accountId,
+  ) =>
+    fetch(`${w.url}/representative/voice/${account}/request`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(secret !== null && { authorization: `Bearer ${secret}` }),
+      },
+      body: JSON.stringify(body),
+    });
+  const emergencyPages = async (w: Awaited<ReturnType<typeof world>>) =>
+    (await getTestDb().select().from(page).where(eq(page.userId, w.user.id))).filter(
+      ({ urgency }) => urgency === "emergency",
+    );
+
+  it("refuses a wrong secret, and stores nothing for an unknown call id", async () => {
+    const w = await world();
+    await w.start("call-1");
+    const body = { callId: "call-1", request: "Book a visit", emergency: false };
+
+    expect((await record(w, body, null)).status).toBe(401);
+    expect((await record(w, body, "not-the-secret")).status).toBe(401);
+    expect((await record(w, { ...body, callId: "other" })).status).toBe(200);
+
+    expect((await w.calls())[0]!.requests).toEqual([]);
+    expect(await getTestDb().select().from(representativeCall)).toHaveLength(1);
+  });
+
+  it("stores a request and its callback note against the Call, and does not page", async () => {
+    const w = await world();
+    await w.start("call-1");
+
+    const response = await record(w, {
+      callId: "call-1",
+      request: "Book a visit",
+      callback: "After 5pm",
+      emergency: false,
+    });
+    await record(w, { callId: "call-1", request: "Call me back", emergency: false });
+
+    expect(response.status).toBe(200);
+    expect((await w.calls())[0]!.requests).toEqual([
+      { request: "Book a visit", callback: "After 5pm", emergency: false },
+      { request: "Call me back", emergency: false },
+    ]);
+    expect(await emergencyPages(w)).toEqual([]);
+  });
+
+  it("pages the owner on an emergency without sending a text, once until acknowledged", async () => {
+    const w = await world();
+    await w.start("call-1");
+    const body = { callId: "call-1", request: "Gas smell", emergency: true };
+
+    await record(w, body);
+    await record(w, body);
+
+    expect(await emergencyPages(w)).toHaveLength(1);
+    expect((await w.calls())[0]!.requests).toHaveLength(2);
+    expect(await getTestDb().select().from(representativeThreadMessage)).toEqual([]);
+  });
+
+  it("answers 400 to a body that isn't the contract's", async () => {
+    const w = await world();
+    await w.start("call-1");
+
+    expect((await record(w, { callId: "call-1", emergency: false })).status).toBe(400);
+    expect((await record(w, { callId: "call-1", request: "x" })).status).toBe(400);
+    expect((await w.calls())[0]!.requests).toEqual([]);
   });
 });

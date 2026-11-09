@@ -68,6 +68,7 @@ import { stopUserTurns } from "./thread-turns";
 import type { ClientIp } from "./web-chat-limits";
 import { unsubscribeRoutes } from "./email-unsubscribe";
 import { callStartRoutes } from "./call-start";
+import { callRequestRoutes } from "./call-request";
 import { webChatRoutes, withWebChat } from "./web-chat";
 import { webChatCodeRoutes } from "./web-chat-code";
 import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
@@ -215,6 +216,7 @@ export function representativeFeature(
       ...webChatCodeRoutes(channelOf, options.clientIp),
       ...unsubscribeRoutes(channelOf),
       ...callStartRoutes,
+      ...callRequestRoutes,
     ],
     jobs: [
       representativeTurnJob(options.concurrency, channelOf),
