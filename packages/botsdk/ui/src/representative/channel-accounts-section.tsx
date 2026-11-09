@@ -17,6 +17,8 @@ import {
   useStoreChannelAccounts,
 } from "@botsdk/representative/react";
 
+import { VoiceAccountSection } from "./voice-account-section";
+
 /**
  * A Representative's Channel accounts (ticket #1358, ADR 0033): the owner connects a platform's
  * number or bot with its credentials, sees what is connected, and removes it. The form is the
@@ -43,17 +45,20 @@ export function ChannelAccountsSection({ id }: { id: string }) {
       <p className="text-sm text-destructive">{t("representative.channelAccountLoadFailed")}</p>
     );
   }
-  if (!accounts.data || accounts.data.platforms.length === 0) return null;
-  const { platforms, accounts: held } = accounts.data;
+  if (!accounts.data) return null;
+  const { platforms, accounts: held, voiceOffered } = accounts.data;
+  if (platforms.length === 0 && !voiceOffered) return null;
+  // A voice account has its own block below; the list here is the platforms the form connects.
+  const listed = held.filter(({ platform }) => platform !== "voice");
   return (
     <section data-representative-channel-accounts="" className="space-y-2">
       <h2 className="text-sm font-medium">{t("representative.channelAccounts")}</h2>
       <p className="text-xs text-muted-foreground">{t("representative.channelAccountsHelp")}</p>
       {held.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("representative.channelAccountNone")}</p>
-      ) : (
+      ) : listed.length === 0 ? null : (
         <ul aria-label={t("representative.channelAccounts")} className="space-y-2 text-sm">
-          {held.map((account) => (
+          {listed.map((account) => (
             <li
               key={account.id}
               data-channel-account={account.platform}
@@ -134,6 +139,7 @@ export function ChannelAccountsSection({ id }: { id: string }) {
             onCancel={() => setConnecting(null)}
           />
         ))}
+      {voiceOffered && <VoiceAccountSection id={id} accounts={held} onView={store} />}
     </section>
   );
 }

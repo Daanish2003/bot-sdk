@@ -138,5 +138,13 @@
   {
     "name": "20261107151824_representative_inbound_mail",
     "sql": "CREATE TABLE \"botsdk\".\"representative_inbound_mail\" (\n\t\"representative_id\" uuid,\n\t\"message_hash\" text,\n\tCONSTRAINT \"representative_inbound_mail_pkey\" PRIMARY KEY(\"representative_id\",\"message_hash\")\n);\n--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_inbound_mail\" ADD CONSTRAINT \"representative_inbound_mail_yedZzhrabbM3_fkey\" FOREIGN KEY (\"representative_id\") REFERENCES \"botsdk\".\"representative\"(\"id\") ON DELETE CASCADE;"
+  },
+  {
+    "name": "20261109093121_representative_call",
+    "sql": "CREATE TABLE \"botsdk\".\"representative_call\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"call_id\" text NOT NULL,\n\t\"thread_id\" uuid NOT NULL,\n\t\"channel_account_id\" uuid,\n\t\"started_at\" timestamp NOT NULL,\n\t\"ended_at\" timestamp,\n\t\"status\" text DEFAULT 'in_progress' NOT NULL,\n\t\"requests\" jsonb DEFAULT '[]' NOT NULL,\n\tCONSTRAINT \"representative_call_call_id\" UNIQUE(\"channel_account_id\",\"call_id\")\n);\n--> statement-breakpoint\nCREATE INDEX \"representative_call_thread_idx\" ON \"botsdk\".\"representative_call\" (\"thread_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_call\" ADD CONSTRAINT \"representative_call_thread_id_representative_thread_id_fkey\" FOREIGN KEY (\"thread_id\") REFERENCES \"botsdk\".\"representative_thread\"(\"id\") ON DELETE CASCADE;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_call\" ADD CONSTRAINT \"representative_call_channel_account_id_channel_account_id_fkey\" FOREIGN KEY (\"channel_account_id\") REFERENCES \"botsdk\".\"channel_account\"(\"id\") ON DELETE SET NULL;"
+  },
+  {
+    "name": "20261109101413_representative_call_caller",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_call\" ADD COLUMN \"external_id\" text NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_call\" ADD COLUMN \"message_id\" uuid;"
   }
 ]

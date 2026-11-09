@@ -76,7 +76,7 @@ type SummaryPayload = z.infer<typeof payload>;
 
 type SummaryServices = FeatureContext<"models">;
 
-/** What a Customer and the business said, numbered. Not a Bot's result, which may never have reached the Customer, nor a fixed note. */
+/** What a Customer and the business said, numbered. Not a Bot's result, which may never have reached the Customer, nor a fixed note, nor a phone Call's transcript, which may be mis-heard and came from a number nothing proves. */
 async function linesOf(db: SummaryServices["db"], threadId: string) {
   const message = representativeThreadMessage;
   const newest = await db

@@ -28,6 +28,7 @@ import type {
   PendingApproval,
   ProfileSource,
   ProfileStatus,
+  RecordedRequest,
   ReleaseContent,
   SpendingCaps,
   TestCheck,
@@ -526,9 +527,16 @@ export const representativeTurn = botsdkSchema.table(
 
 /**
  * Who wrote a thread message; a `note` is the fixed line the Customer gets when the owner takes
- * over, and a `bot` message is what the Bot finished a hand-off with, for the Customer (ticket #1254).
+ * over, a `bot` message is what the Bot finished a hand-off with, for the Customer (ticket #1254), and
+ * a `call` message is a phone Call's whole transcript, one line per thing said (ticket #1384).
  */
-export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot";
+export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot" | "call";
+
+/** Who counts as the Customer having spoken: a Call is their word to every counter (ticket #1385). */
+export const customerAuthors = ["customer", "call"] as const;
+
+/** The authors whose message a Turn is owed for. */
+export const waitingAuthors = ["customer", "bot", "call"] as const;
 
 /**
  * What the pass wrote when a Customer thread closed (ticket #1279): one row per thread, its summary
@@ -854,5 +862,42 @@ export const representativeChannelAccount = botsdkSchema.table(
   },
   (table) => [
     index("representative_channel_account_representative_id_idx").on(table.representativeId),
+  ],
+);
+
+/** Where a Call stands: on the line, ended with its transcript, or never heard the end of. */
+export type CallStatus = "in_progress" | "ended" | "ended_no_transcript";
+
+/** What a caller wanted, as the Voice agent's one tool stored it during the Call. */
+export type { RecordedRequest };
+
+/**
+ * A phone call a Representative's Voice agent answered (ticket #1382, ADR 0036). `callId` is the
+ * vendor's id, unique per voice account so a retry adds nothing and no account can take another's id.
+ * It goes with its thread; a voice account removed later leaves the Call on the record without one.
+ * `externalId` is the number it came from, on the SMS channel a caller's Customer is found by.
+ * `messageId` is its `call` entry in the thread (ticket #1384); null until it ends.
+ */
+export const representativeCall = botsdkSchema.table(
+  "representative_call",
+  {
+    id: uuid("id").primaryKey(),
+    callId: text("call_id").notNull(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
+    channelAccountId: uuid("channel_account_id").references((): AnyPgColumn => channelAccount.id, {
+      onDelete: "set null",
+    }),
+    externalId: text("external_id").notNull(),
+    startedAt: timestamp("started_at").notNull(),
+    endedAt: timestamp("ended_at"),
+    messageId: uuid("message_id"),
+    status: text("status").$type<CallStatus>().notNull().default("in_progress"),
+    requests: jsonb("requests").$type<RecordedRequest[]>().notNull().default([]),
+  },
+  (table) => [
+    unique("representative_call_call_id").on(table.channelAccountId, table.callId),
+    index("representative_call_thread_idx").on(table.threadId),
   ],
 );

@@ -6,6 +6,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { defineJob } from "@botsdk/bot/runner/internal";
 import type { ChannelOf } from "./customer-proof";
 import {
+  customerAuthors,
   representative,
   representativeCustomer,
   representativeHandOff,
@@ -163,7 +164,7 @@ async function firstWaiting(tx: Transaction, threadId: string) {
     .where(
       and(
         eq(message.threadId, threadId),
-        eq(message.author, "customer"),
+        inArray(message.author, customerAuthors),
         gt(message.position, answered?.position ?? 0),
       ),
     );

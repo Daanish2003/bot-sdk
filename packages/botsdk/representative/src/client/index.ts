@@ -13,6 +13,8 @@ export function representativeClient(): RepresentativeFeatureClient {
 }
 
 export {
+  callLimitSeconds,
+  maxVoiceGreetingLength,
   type CustomerIdentityView,
   type CustomerMergeView,
   type CustomerSummarySkip,
@@ -65,6 +67,7 @@ export {
   type TestResultView,
   type TestStatus,
   type ThreadHolder,
+  type RecordedRequest,
   type ThreadMessageView,
   type ThreadSummary,
   type ThreadView,

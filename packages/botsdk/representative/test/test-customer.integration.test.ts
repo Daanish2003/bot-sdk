@@ -779,7 +779,7 @@ describe("who can reach a Turn", () => {
   it("has no way in from the package or the owner's API, and one route, a web chat visitor's", () => {
     const made = representative();
 
-    expect(Object.keys(packageRoot)).toEqual(["representative"]);
+    expect(Object.keys(packageRoot).sort()).toEqual(["representative", "voice"]);
     expect(Object.keys(packageManifest(packageRootOf(import.meta.url)).exports).sort()).toEqual([
       ".",
       "./client",
@@ -858,6 +858,9 @@ describe("who can reach a Turn", () => {
       "topicRemove",
       "topicSetMode",
       "updateDraft",
+      "voiceAccountConnect",
+      "voiceAccountRegenerate",
+      "voiceAccountSetGreeting",
       "widgetKeyCreate",
       "widgetKeyDisable",
       "widgetKeyGet",
@@ -883,6 +886,9 @@ describe("who can reach a Turn", () => {
       "POST /representative/widget/code/check",
       "GET /representative/unsubscribe/:token",
       "POST /representative/unsubscribe/:token",
+      "POST /representative/voice/:accountId/start",
+      "POST /representative/voice/:accountId/request",
+      "POST /representative/voice/:accountId/end",
     ]);
     // The core's hooks: a stranger on a held account (#1334), and mail to a Representative's address (#1346).
     expect(typeof made.onStranger).toBe("function");

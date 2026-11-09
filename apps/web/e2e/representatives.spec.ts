@@ -238,6 +238,157 @@ test("an owner sees a Representative's Channel accounts and gets a refusal for c
   await expect(section.getByLabel("Token")).toHaveCount(0);
 });
 
+test("an owner connects phone calls, sees the secret once, regenerates it, and a bad number is refused", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Phone desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  const section = page.locator("[data-representative-voice]");
+  const tick = section.getByRole("checkbox", { name: "Take calls on this number" });
+  await tick.check();
+  // Only a number and a greeting: no provider, and no LiveKit or Telnyx key.
+  await expect(section.getByRole("textbox")).toHaveCount(2);
+
+  // A badly formed number is refused, and nothing is connected.
+  await section.getByLabel("Phone number (E.164)").fill("call me");
+  await section.getByRole("button", { name: "Connect calls" }).click();
+  await expect(page.locator('[data-sonner-toast][data-type="error"]').first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(section.locator("[data-voice-account]")).toHaveCount(0);
+
+  const number = `+1555${String(Date.now()).slice(-7)}`;
+  await section.getByLabel("Phone number (E.164)").fill(number);
+  await section.getByLabel("Greeting").fill("Thanks for calling Phone desk.");
+  await section.getByRole("button", { name: "Connect calls" }).click();
+
+  const account = section.locator("[data-voice-account]");
+  await expect(account.getByText(`Calls to ${number}`)).toBeVisible();
+  await expect(account.getByText("Greeting: Thanks for calling Phone desk.")).toBeVisible();
+  await expect(account.getByText(/No SMS account has this number/)).toBeVisible();
+  // The hook URL is under this app's API, and the checklist is there to open.
+  await expect(account.getByLabel("Hook URL")).toHaveValue(
+    /\/api\/chat\/representative\/voice\/[\w-]+$/,
+  );
+  await account.getByText("Setup checklist").click();
+  await expect(account.getByText(/SIP inbound trunk/)).toBeVisible();
+
+  // The secret shows now, once.
+  const secret = account.getByLabel("Secret");
+  const first = await secret.inputValue();
+  expect(first.length).toBeGreaterThanOrEqual(32);
+
+  // The greeting changes in place, and the secret stays.
+  await account.getByRole("button", { name: "Change greeting" }).click();
+  await account.getByLabel("Greeting").fill("Phone desk, how can I help?");
+  await account.getByRole("button", { name: "Save greeting" }).click();
+  await expect(account.getByText("Greeting: Phone desk, how can I help?")).toBeVisible();
+  await expect(secret).toHaveValue(first);
+  await page.reload();
+  await expect(
+    section.locator("[data-voice-account]").getByText("Greeting: Phone desk, how can I help?"),
+  ).toBeVisible();
+  await expect(section.locator("[data-voice-account]").getByLabel("Hook URL")).toBeVisible();
+  await expect(section.getByLabel("Secret")).toHaveCount(0);
+
+  // Regenerating asks first, and the new secret replaces the old one.
+  await account.getByRole("button", { name: "Regenerate secret" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(section.getByLabel("Secret")).toHaveCount(0);
+  await account.getByRole("button", { name: "Regenerate secret" }).click();
+  await dialog.getByRole("button", { name: "Regenerate secret" }).click();
+  await expect(section.getByLabel("Secret")).toBeVisible();
+  expect(await section.getByLabel("Secret").inputValue()).not.toBe(first);
+
+  // Turning calls off removes the account.
+  await account.getByRole("button", { name: "Turn calls off" }).click();
+  await expect(section.locator("[data-voice-account]")).toHaveCount(0);
+});
+
+test("a phone call shows live on its thread, then as one group between dividers, and setup shows the last call", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Call desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+  await page.getByLabel("Job text").fill("Answer questions about opening hours.");
+  await page.getByRole("button", { name: "Approve as a new Release" }).click();
+  await expect(page.getByText("Live: Release 1")).toBeVisible();
+  await page.getByRole("checkbox", { name: "Serving" }).click();
+  await expect(page.getByRole("checkbox", { name: "Serving" })).toBeChecked();
+
+  const section = page.locator("[data-representative-voice]");
+  await section.getByRole("checkbox", { name: "Take calls on this number" }).check();
+  const number = `+1556${String(Date.now()).slice(-7)}`;
+  await section.getByLabel("Phone number (E.164)").fill(number);
+  await section.getByRole("button", { name: "Connect calls" }).click();
+  const account = section.locator("[data-voice-account]");
+  const secretInput = account.getByLabel("Secret");
+  await expect(secretInput).toBeVisible();
+  const secret = await secretInput.inputValue();
+  await expect(account.locator("[data-voice-last-call]")).toHaveText("No calls yet");
+  const { pathname } = new URL(await account.getByLabel("Hook URL").inputValue());
+  const hook = (name: string, data: unknown, key = secret) =>
+    page.request.post(`${pathname}/${name}`, {
+      headers: { authorization: `Bearer ${key}` },
+      data,
+    });
+
+  const callId = `call-${Date.now()}`;
+  const started = await hook("start", { callId, caller: "+15557654321" });
+  expect(await started.json()).toMatchObject({ decision: "answer" });
+
+  // On the line: a thread with no messages yet, and the running call.
+  await page.reload();
+  const thread = page.locator("[data-thread]").filter({ hasText: "+15557654321" });
+  await thread.getByRole("button", { name: /^Read / }).click();
+  await expect(thread.getByText(/^On a call \d+:\d\d$/)).toBeVisible();
+  await expect(thread.locator("[data-call-live]")).toContainText("Call started");
+  await expect(thread.locator("[data-call-live]")).toContainText("replies are spoken");
+
+  const transcript = [
+    { role: "agent", text: "Thanks for calling." },
+    { role: "caller", text: "When do you open?" },
+  ];
+  expect((await hook("end", { callId, transcript }, "wrong-secret")).status()).toBe(401);
+  expect((await hook("end", { callId, transcript })).status()).toBe(200);
+  // A retry of the same end changes nothing.
+  expect((await hook("end", { callId, transcript })).status()).toBe(200);
+
+  // The open thread sees it end with no reload.
+  await expect(thread.locator("[data-call-live]")).toHaveCount(0, { timeout: 15_000 });
+  const group = thread.locator("[data-call-group]");
+  await expect(group).toHaveCount(1);
+  await expect(group).toContainText("Call started");
+  await expect(group).toContainText(/Call ended · 1 min · hung up/);
+  await expect(group.locator('[data-call-line="caller"]')).toContainText("📞 by phone");
+  await expect(group.locator('[data-call-line="caller"]')).toContainText("When do you open?");
+
+  // It folds to its one divider, with what it hides counted.
+  await group.getByRole("button", { name: /Hide/ }).click();
+  await expect(group.getByRole("button", { name: /Show 2/ })).toBeVisible();
+  await expect(group.locator("[data-call-line]")).toHaveCount(0);
+
+  await expect(
+    section.locator("[data-voice-account]").locator("[data-voice-last-call]"),
+  ).toHaveText("Last call just now");
+
+  // A Call with nothing said says so, rather than how it ended.
+  const silent = `${callId}-silent`;
+  await hook("start", { callId: silent, caller: "+15557654321" });
+  expect((await hook("end", { callId: silent, transcript: [] })).status()).toBe(200);
+  await page.reload();
+  await thread.getByRole("button", { name: /^Read / }).click();
+  await expect(thread.locator("[data-call-group]").last()).toContainText("no transcript");
+});
+
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {
   await signInAsSeededUser(page);
   await page.goto("/representatives");

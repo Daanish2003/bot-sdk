@@ -445,7 +445,7 @@ export type ThreadSummary = {
 /** One message of a thread's transcript, with where it was heard from or sent to. */
 export type ThreadMessageView = {
   id: string;
-  author: "customer" | "representative" | "owner" | "note" | "bot";
+  author: "customer" | "representative" | "owner" | "note" | "bot" | "call";
   text: string;
   channel: string;
   externalId: string;
@@ -453,7 +453,26 @@ export type ThreadMessageView = {
   verified: boolean;
   /** A Representative's reply's kind and sources; null on every other message. */
   reply: ReplyProof | null;
+  /** A phone Call's entry; null on every other message. */
+  call: CallEntryView | null;
   createdAt: Date;
+};
+
+/** One thing said on a phone Call. */
+export type CallLine = { role: "caller" | "agent"; text: string };
+
+/** What a caller asked for, as the Voice agent recorded it against the Call. */
+export type RecordedRequest = { request: string; callback?: string; emergency: boolean };
+
+/** A `call` entry as the owner reads it: the group between its dividers (the verdict on #1366). */
+export type CallEntryView = {
+  status: "in_progress" | "ended" | "ended_no_transcript";
+  startedAt: Date;
+  endedAt: Date | null;
+  /** What was said; none for a Call that ended with no transcript. */
+  lines: CallLine[];
+  /** What the caller asked for on it, apart from what was said. */
+  requests: RecordedRequest[];
 };
 
 /** A message the Outbound gate held (ticket #1304), which the owner sends or drops. Not in the transcript. */
@@ -501,6 +520,8 @@ export type ThreadView = ThreadSummary & {
   messages: ThreadMessageView[];
   /** What the gate has held on this thread, oldest first. */
   held: HeldMessageView[];
+  /** A Call on the line now, which has no entry until it ends. */
+  liveCall: { startedAt: Date; requests: RecordedRequest[] } | null;
 };
 
 /** The longest one thread message may be, whoever wrote it. */
@@ -886,12 +907,38 @@ export type HeldChannelAccountView = {
   reason: string | null;
   /** Where to point the platform's webhook, for a platform that posts to one (SMS); else null. */
   webhookUrl: string | null;
+  /** A `voice` account's setup: what the owner sets and where the Voice agent's hooks are (ticket #1381). */
+  voice: VoiceAccountView | null;
   createdAt: Date;
 };
 
+/** The greeting a voice account has until the owner sets one. A fixed line about being automated follows it on a Call. */
+export const defaultVoiceGreeting = "Hello, thanks for calling. How can I help?";
+export const maxVoiceGreetingLength = 300;
+
+/** A voice account's setup, as its owner sees it: never its secret, which is shown once when made. */
+export type VoiceAccountView = {
+  greeting: string;
+  /** Where the Voice agent's hooks are (`<hookUrl>/start`, `/request`, `/end`); null while the Host has no `linkUrl`. */
+  hookUrl: string | null;
+  /** Whether an SMS account on this Representative has the same number, so follow-up texts come from it. */
+  smsPaired: boolean;
+  /** When the last Call this account answered began; null before its first. */
+  lastCallAt: Date | null;
+};
+
+/** The most a Call may last, which the Voice agent enforces. */
+export const callLimitSeconds = 600;
+
+/** A voice account's new secret, in the one view that shows it. */
+export type VoiceAccountSecret = { secret: string; view: ChannelAccountsView };
+
 /** What a Representative's owner sees of its Channel accounts: the platforms to connect on, and what it holds. */
 export type ChannelAccountsView = {
+  /** The platforms a form connects, each with its credentials. Not `voice`, which has its own (`voiceOffered`). */
   platforms: ChannelAccountPlatformView[];
+  /** Whether the Host offers phone calls: it registered the `voice` adapter. */
+  voiceOffered: boolean;
   accounts: HeldChannelAccountView[];
 };
 
@@ -932,6 +979,19 @@ export const channelAccountConnectInput = z.object({
   platform: platformSchema,
   credentials: z.record(z.string().max(100), z.string().trim().min(1).max(4096)),
 });
+/** A voice account takes a number and a greeting only: no provider, and no LiveKit or Telnyx key. */
+export const voiceAccountConnectInput = z.object({
+  id: z.uuid(),
+  number: z.string().trim().min(1).max(40),
+  greeting: z.string().trim().max(maxVoiceGreetingLength).optional(),
+});
+export const voiceAccountSetGreetingInput = z.object({
+  id: z.uuid(),
+  channelAccountId: z.uuid(),
+  /** Empty is the default greeting, as when connecting. */
+  greeting: z.string().trim().max(maxVoiceGreetingLength),
+});
+export const voiceAccountRegenerateInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 export const channelAccountRemoveInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 
 export const representativeContract = {
@@ -1008,6 +1068,17 @@ export const representativeContract = {
    * may hold several.
    */
   channelAccountConnect: oc.input(channelAccountConnectInput).output(type<ChannelAccountsView>()),
+  /**
+   * Connects a voice account (ticket #1381): the number Customers call and a greeting, with a secret
+   * made here and returned once. The same number again replaces the account and its secret.
+   */
+  voiceAccountConnect: oc.input(voiceAccountConnectInput).output(type<VoiceAccountSecret>()),
+  /** Changes a voice account's greeting. Its number and secret stay, so the Voice agent keeps working. */
+  voiceAccountSetGreeting: oc
+    .input(voiceAccountSetGreetingInput)
+    .output(type<ChannelAccountsView>()),
+  /** Gives a voice account a new secret, returned once; the old one stops at once. */
+  voiceAccountRegenerate: oc.input(voiceAccountRegenerateInput).output(type<VoiceAccountSecret>()),
   /** Removes one of the Representative's Channel accounts, and its listener stops. */
   channelAccountRemove: oc.input(channelAccountRemoveInput).output(type<ChannelAccountsView>()),
   /** The owner's Customers, oldest first. */

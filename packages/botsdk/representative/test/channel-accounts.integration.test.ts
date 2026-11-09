@@ -452,6 +452,7 @@ describe("the owner's API for a Representative's Channel accounts (ticket #1358)
 
     expect(await client.representative.channelAccountList({ id: representativeId })).toEqual({
       platforms: [{ platform: "fake", fields: ["token"], plainFields: [] }],
+      voiceOffered: false,
       accounts: [],
     });
 

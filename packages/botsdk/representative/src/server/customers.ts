@@ -4,8 +4,10 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  type RecordedRequest,
   draftRule,
   representative,
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeRelease,
@@ -55,6 +57,8 @@ export type ThreadEntry = {
   earlier?: boolean;
   /** The Assignment behind a Bot's result that is this Turn's to tell. */
   assignmentId?: string;
+  /** The Call a `call` entry is the transcript of. */
+  callId?: string;
 };
 
 /** An identity of `userId`'s with its Customer, made together on the identity's first message. */
@@ -391,6 +395,16 @@ export async function readSender(
   return { ...sender, proofRule: heard?.proofRule ?? null };
 }
 
+/** A Call's transcript with what the caller asked for on it, as the Voice agent recorded it. */
+function withRecordedRequests(text: string, requests: RecordedRequest[] | null) {
+  if (!requests?.length) return text;
+  const lines = requests.map(
+    ({ request, callback, emergency }) =>
+      `- ${request}${callback ? ` (callback: ${callback})` : ""}${emergency ? " [emergency]" : ""}`,
+  );
+  return `Requests the caller made, as the voice agent recorded them:\n${lines.join("\n")}\n\n${text}`;
+}
+
 /**
  * What a Turn reads of its thread: oldest first, up to and including `upTo`, so a replay reads what
  * the first attempt read, and within both limits. Empty once the thread has gone. For an unverified
@@ -413,8 +427,18 @@ export async function readThread(
       verified: representativeThreadMessage.verified,
       heldForOwner: representativeThreadMessage.heldForOwner,
       assignmentId: representativeThreadMessage.assignmentId,
+      requests: representativeCall.requests,
+      callStatus: representativeCall.status,
+      callId: representativeCall.id,
     })
     .from(representativeThreadMessage)
+    .leftJoin(
+      representativeCall,
+      and(
+        eq(representativeCall.threadId, representativeThreadMessage.threadId),
+        eq(representativeCall.messageId, representativeThreadMessage.id),
+      ),
+    )
     .where(
       and(
         eq(representativeThreadMessage.threadId, threadId),
@@ -433,23 +457,39 @@ export async function readThread(
   const kept: typeof newest = [];
   let chars = 0;
   for (const entry of newest) {
-    chars += entry.text.length;
+    chars += withRecordedRequests(
+      entry.text,
+      entry.callStatus === "ended" ? entry.requests : null,
+    ).length;
     if (chars > threadPromptChars) break;
     kept.push(entry);
   }
   // A message that waited through the last Turn comes after that Turn's reply, though sent before
   // it: a Turn's prompt ends on what it has to answer.
   const unanswered = (entry: (typeof newest)[number]) =>
-    (entry.author === "customer" || entry.author === "bot") && entry.position >= batchFrom;
+    (entry.author === "customer" || entry.author === "bot" || entry.author === "call") &&
+    entry.position >= batchFrom;
   kept.reverse();
   return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)].map(
-    ({ author, text, verified, position, heldForOwner, assignmentId }) => {
+    ({
+      author,
+      text,
+      verified,
+      position,
+      heldForOwner,
+      assignmentId,
+      requests,
+      callStatus,
+      callId,
+    }) => {
       const earlier = position < batchFrom || heldForOwner;
       return {
         author,
-        text,
+        // A lost Call's entry already carries them.
+        text: withRecordedRequests(text, callStatus === "ended" ? requests : null),
         verified,
         earlier,
+        ...(callId && { callId }),
         ...(assignmentId && !earlier && { assignmentId }),
       };
     },
@@ -483,6 +523,10 @@ export async function holdThreadCustomer(tx: Transaction, threadId: string) {
 /** What the Model hears of a reply the gate held: the owner has it, and sending it again changes nothing. */
 export const heldNote =
   "Your reply was held, because the Outbound gate holds it (a cap on messages to this Customer, quiet hours, or the Channel's limits), so nothing was sent now. The owner sends or drops it, or, if quiet hours held it, it goes when they end. Do not send it again.";
+
+/** A reply the gate dropped because there is no account to send it by. Other work can still be done. */
+export const noAccountNote =
+  "No text was sent: this Representative has no text-message account. If something needs doing, hand it to the Bot; otherwise end the Turn.";
 
 /**
  * Passes a reply through the Outbound gate, addressed to the sender its Turn answers, and if the gate
@@ -545,6 +589,7 @@ export async function storeReply(
     };
   }
   if (decision?.outcome === "hold") return { error: heldNote };
+  if (decision?.outcome === "drop" && decision.rule === "channel") return { error: noAccountNote };
   if (decision?.outcome !== "send")
     return {
       error:
@@ -678,6 +723,27 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       ),
     (row) => row.threadId,
   );
+  const calls = grouped(
+    await tx
+      .select({
+        threadId: representativeCall.threadId,
+        callId: representativeCall.callId,
+        externalId: representativeCall.externalId,
+        startedAt: representativeCall.startedAt,
+        endedAt: representativeCall.endedAt,
+        status: representativeCall.status,
+        requests: representativeCall.requests,
+      })
+      .from(representativeCall)
+      .innerJoin(representativeThread, eq(representativeThread.id, representativeCall.threadId))
+      .innerJoin(
+        representativeCustomer,
+        eq(representativeCustomer.id, representativeThread.customerId),
+      )
+      .where(eq(representativeCustomer.userId, userId))
+      .orderBy(asc(representativeCall.startedAt), asc(representativeCall.id)),
+    (row) => row.threadId,
+  );
   return customers.map(({ id, blockedAt, createdAt }) => ({
     id,
     name: nameIn(profiles.get(id)),
@@ -712,6 +778,7 @@ export async function exportCustomers(tx: Transaction, userId: string) {
         assignmentId: message.assignmentId,
         createdAt: message.createdAt,
       })),
+      calls: (calls.get(thread.id) ?? []).map(({ threadId: _threadId, ...call }) => call),
     })),
   }));
 }

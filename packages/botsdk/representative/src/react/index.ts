@@ -239,6 +239,27 @@ export function useConnectChannelAccount(
   return useMutation(useRepresentative().channelAccountConnect.mutationOptions(options));
 }
 
+/** Connects a voice account and gets its secret, shown once (`representative.voiceAccountConnect`). */
+export function useConnectVoiceAccount(
+  options?: ProcedureMutationOptions<Representative["voiceAccountConnect"]>,
+) {
+  return useMutation(useRepresentative().voiceAccountConnect.mutationOptions(options));
+}
+
+/** Changes a voice account's greeting, keeping its secret (`representative.voiceAccountSetGreeting`). */
+export function useSetVoiceGreeting(
+  options?: ProcedureMutationOptions<Representative["voiceAccountSetGreeting"]>,
+) {
+  return useMutation(useRepresentative().voiceAccountSetGreeting.mutationOptions(options));
+}
+
+/** Gives a voice account a new secret, shown once (`representative.voiceAccountRegenerate`). */
+export function useRegenerateVoiceSecret(
+  options?: ProcedureMutationOptions<Representative["voiceAccountRegenerate"]>,
+) {
+  return useMutation(useRepresentative().voiceAccountRegenerate.mutationOptions(options));
+}
+
 /** Removes one of a Representative's Channel accounts (`representative.channelAccountRemove`). */
 export function useRemoveChannelAccount(
   options?: ProcedureMutationOptions<Representative["channelAccountRemove"]>,
@@ -441,7 +462,11 @@ export function useThreads(id: string) {
 
 /** One thread with its transcript (`representative.threadGet`). */
 export function useThread(id: string) {
-  return useQuery(useRepresentative().threadGet.queryOptions({ input: { id } }));
+  return useQuery({
+    ...useRepresentative().threadGet.queryOptions({ input: { id } }),
+    // While a Call is on the line, the view watches for it to end.
+    refetchInterval: (query) => (query.state.data?.liveCall ? 2_000 : false),
+  });
 }
 
 /** Takes a thread over from its Representative (`representative.threadTakeOver`). */

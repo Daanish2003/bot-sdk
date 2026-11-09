@@ -73,6 +73,8 @@ export type CustomerChannel = {
   ) => Promise<void>;
   /** What the platform of `channel` limits, as its adapter declares it; left out, nothing is limited. */
   reach?: (channel: string) => MessagingReach | undefined;
+  /** Whether the Representative holds an active account on `channel`; left out, no such check is made. */
+  hasAccount?: (tx: Transaction, channel: string, representativeId: string) => Promise<boolean>;
 };
 
 /** A send that failed partway through account `channelAccountId`, which its retry resumes on. */

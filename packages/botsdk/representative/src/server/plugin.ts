@@ -5,6 +5,7 @@ import { representativeApi } from "./api";
 import { botDraftTools } from "./bot-draft";
 import {
   representative,
+  representativeCall,
   representativeChannelAccount,
   representativeCustomer,
   representativeCustomerIdentity,
@@ -66,6 +67,10 @@ import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
 import type { ClientIp } from "./web-chat-limits";
 import { unsubscribeRoutes } from "./email-unsubscribe";
+import { callEndRoutes } from "./call-end";
+import { callLostJob } from "./call-lost";
+import { callStartRoutes } from "./call-start";
+import { callRequestRoutes } from "./call-request";
 import { webChatRoutes, withWebChat } from "./web-chat";
 import { webChatCodeRoutes } from "./web-chat-code";
 import { type WidgetSessionCheck, widgetSessionRoutes } from "./widget-key";
@@ -154,6 +159,7 @@ export function representativeFeature(
     schema: {
       tables: {
         representative,
+        representativeCall,
         representativeChannelAccount,
         representativeCustomer,
         representativeCustomerIdentity,
@@ -190,6 +196,7 @@ export function representativeFeature(
         options.convertDocument,
         options.knowledgeFiles,
         channelOf(context),
+        options.linkUrl,
       ),
     tools: (turn, context) => [
       ...botDraftTools(turn, context),
@@ -210,11 +217,15 @@ export function representativeFeature(
       ...webChatRoutes(channelOf, options.clientIp),
       ...webChatCodeRoutes(channelOf, options.clientIp),
       ...unsubscribeRoutes(channelOf),
+      ...callStartRoutes,
+      ...callRequestRoutes,
+      ...callEndRoutes,
     ],
     jobs: [
       representativeTurnJob(options.concurrency, channelOf),
       customerDeliveryJob(channelOf, deliveryConcurrency),
       draftDueJob,
+      callLostJob,
       assignmentDueJob(channelOf),
       ownerWaitJob,
       heldReleaseJob(channelOf, deliveryConcurrency),

@@ -1,9 +1,10 @@
-import { and, count, desc, eq, gt, gte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 
 import type { Transaction } from "@botsdk/bot/plugin";
 import { usage } from "@botsdk/bot/storage";
 import { defaultSpendingCaps, type SpendingCaps } from "../shared/contract";
 import {
+  customerAuthors,
   representative,
   representativeThread,
   representativeThreadMessage,
@@ -114,7 +115,7 @@ export async function capReached(
     .where(
       and(
         eq(representativeThreadMessage.threadId, threadId),
-        eq(representativeThreadMessage.author, "customer"),
+        inArray(representativeThreadMessage.author, customerAuthors),
       ),
     )
     .orderBy(desc(representativeThreadMessage.position))

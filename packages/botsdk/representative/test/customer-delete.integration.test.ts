@@ -27,6 +27,7 @@ import { deleteCustomer } from "../src/server/customer-delete";
 import { codeHandOffKind, limitNoteKind, type StoredReplyKind } from "../src/shared/replies";
 import { afterThreadClose, customerSummaryMarker } from "../src/server/customer-summary";
 import {
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -420,7 +421,12 @@ describe("deleting a Customer", () => {
 
   describe("what an undone merge left of them was owed", () => {
     /** Ada's thread with Bob's words on it, a limit and the owner's list owing them from `waitingFrom`. */
-    async function owed(adaIsAnswered: boolean, waitingFrom: number, between?: StoredReplyKind) {
+    async function owed(
+      adaIsAnswered: boolean,
+      waitingFrom: number,
+      between?: StoredReplyKind,
+      adaCalled = false,
+    ) {
       const answer = () =>
         round(
           toolCall({
@@ -442,6 +448,17 @@ describe("deleting a Customer", () => {
       await settle(threadIdleMs);
       const shared = (await threadsOfCustomers([ada.id])).find((row) => row.state === "closed")!;
       const noted = new Date();
+      if (adaCalled) {
+        await getTestDb()
+          .update(representativeThreadMessage)
+          .set({ author: "call" })
+          .where(
+            and(
+              eq(representativeThreadMessage.threadId, shared.id),
+              eq(representativeThreadMessage.position, 1),
+            ),
+          );
+      }
       if (between) {
         // Code's fixed words between Ada's question and Bob's, in the place they would have had.
         await getTestDb()
@@ -493,6 +510,12 @@ describe("deleting a Customer", () => {
       },
     );
 
+    it("keeps both while someone else's Call is still owed", async () => {
+      const row = await owed(false, 1, undefined, true);
+      expect(row.waitingFrom).toBe(1);
+      expect(row.leftForOwnerAt).not.toBeNull();
+    });
+
     it("keeps both while someone else's words are still owed", async () => {
       const row = await owed(false, 1);
       expect(row.waitingFrom).toBe(1);
@@ -538,6 +561,24 @@ describe("deleting a Customer", () => {
       .set({ lastExternalId: bobNumber, channelAccountId: accountId })
       .where(eq(representativeThread.id, shared.id));
     const [theirHandOff] = await handOffsAt(bobNumber);
+    const callFrom = (externalId: string) => ({
+      id: uuidv7(),
+      callId: externalId,
+      threadId: shared.id,
+      externalId,
+      startedAt: new Date(),
+    });
+    // A Call is found by the SMS channel's number, whatever channel they first wrote on.
+    await getTestDb().insert(representativeCustomerIdentity).values({
+      id: uuidv7(),
+      userId: owner.user.id,
+      customerId: bob.id,
+      channel: "sms",
+      externalId: bobNumber,
+    });
+    await getTestDb()
+      .insert(representativeCall)
+      .values([callFrom(bobNumber), callFrom(adaNumber)]);
 
     const { assignmentIds } = await deleteCustomer(owner.context(), owner.user.id, bob.id);
 
@@ -551,6 +592,12 @@ describe("deleting a Customer", () => {
       .where(eq(representativeThreadMessage.threadId, shared.id));
     expect(left.map((row) => row.text)).toEqual(["Ada speaks."]);
     expect(left.map((row) => row.externalId)).toEqual([adaNumber]);
+    expect(
+      await getTestDb()
+        .select({ externalId: representativeCall.externalId })
+        .from(representativeCall)
+        .where(eq(representativeCall.threadId, shared.id)),
+    ).toEqual([{ externalId: adaNumber }]);
     const [thread] = await getTestDb()
       .select({
         lastExternalId: representativeThread.lastExternalId,
@@ -605,6 +652,113 @@ describe("deleting a Customer", () => {
     expect((await rpc.representative.customerList()).map((each) => each.id).sort()).toEqual(
       [ada.id, zed.id].sort(),
     );
+  });
+
+  describe("a thread of another Customer's holding a Call of theirs", () => {
+    /** Bob's Call on Ada's thread, which by then holds nothing else, as a Call after an undone merge leaves it. */
+    const onAdasThread = async () => {
+      const owner = await instance();
+      const { say, customerAt, settle } = owner;
+      await say("Ada speaks.", adaNumber);
+      await say("Bob speaks.", bobNumber);
+      await settle();
+      const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
+      const [thread] = await threadsOfCustomers([ada.id]);
+      await getTestDb()
+        .delete(representativeThreadMessage)
+        .where(eq(representativeThreadMessage.threadId, thread!.id));
+      await getTestDb()
+        .update(representativeThread)
+        .set({ lastExternalId: bobNumber })
+        .where(eq(representativeThread.id, thread!.id));
+      await getTestDb()
+        .insert(representativeCustomerIdentity)
+        .values({
+          id: uuidv7(),
+          userId: owner.user.id,
+          customerId: bob.id,
+          channel: "sms",
+          externalId: bobNumber,
+        })
+        .onConflictDoNothing();
+      const call = (externalId: string) => ({
+        id: uuidv7(),
+        callId: externalId,
+        threadId: thread!.id,
+        externalId,
+        startedAt: new Date(),
+      });
+      return { ...owner, ada, bob, thread: thread!, call };
+    };
+
+    it("goes when that Call is all it held", async () => {
+      const { rpc, ada, bob, call } = await onAdasThread();
+      await getTestDb().insert(representativeCall).values(call(bobNumber));
+
+      await rpc.representative.customerDelete({ id: bob.id });
+
+      expect(await threadsOfCustomers([ada.id])).toEqual([]);
+      expect(await getTestDb().select().from(representativeCall)).toEqual([]);
+    });
+
+    it("stays, naming the other caller, while someone else's Call is on it", async () => {
+      const { rpc, ada, bob, thread, call } = await onAdasThread();
+      await getTestDb()
+        .insert(representativeCall)
+        .values([call(bobNumber), call(adaNumber)]);
+
+      await rpc.representative.customerDelete({ id: bob.id });
+
+      const [kept] = await threadsOfCustomers([ada.id]);
+      expect(kept?.id).toBe(thread.id);
+      const [row] = await getTestDb()
+        .select({ lastExternalId: representativeThread.lastExternalId })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, thread.id));
+      expect(row?.lastExternalId).toBe(adaNumber);
+      expect(
+        (await getTestDb().select().from(representativeCall)).map((each) => each.externalId),
+      ).toEqual([adaNumber]);
+    });
+
+    it("takes the thread's lock before the Call's", async () => {
+      const { rpc, bob, thread, call } = await onAdasThread();
+      await getTestDb().insert(representativeCall).values(call(bobNumber));
+      let deleting: Promise<unknown> | undefined;
+
+      await getTestDb().transaction(async (holder) => {
+        await holder
+          .select({ id: representativeThread.id })
+          .from(representativeThread)
+          .where(eq(representativeThread.id, thread.id))
+          .for("update");
+        deleting = rpc.representative.customerDelete({ id: bob.id });
+        await expect
+          .poll(
+            async () => {
+              const { rows } = await getTestDb().execute<{ n: number }>(
+                sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+              );
+              return rows[0]!.n;
+            },
+            { timeout: 10_000 },
+          )
+          .toBeGreaterThan(0);
+        // It waits on the thread still free of the Call's row, so a Call's end can't deadlock with it.
+        await expect(
+          getTestDb().transaction((tx) =>
+            tx
+              .select({ id: representativeCall.id })
+              .from(representativeCall)
+              .where(eq(representativeCall.externalId, bobNumber))
+              .for("update", { noWait: true }),
+          ),
+        ).resolves.toHaveLength(1);
+      });
+      await deleting;
+
+      expect(await getTestDb().select().from(representativeCall)).toEqual([]);
+    });
   });
 
   it("removes a thread of another Customer's that held only their words", async () => {
@@ -1348,6 +1502,13 @@ describe("the completeness of a Customer's delete", () => {
         subject: "Opening hours",
         messageIds: ["first@mail.example"],
       });
+    await getTestDb().insert(representativeCall).values({
+      id: uuidv7(),
+      callId: "ada-call",
+      threadId: adaThread!.id,
+      externalId: adaNumber,
+      startedAt: new Date(),
+    });
     const { reached, customerTable, edges } = await rowsLinkedTo([ada.id, bob.id]);
     // Every table a chain of foreign keys ties to a Customer must be seeded above, so a new one
     // can't pass unchecked.
@@ -1386,6 +1547,8 @@ describe("the completeness of a Customer's delete", () => {
     // above), and a message's Assignment goes with the message. An address is matched to another
     // Customer's messages and hand-offs (tested above), and its other columns go with their row.
     const covered = [
+      // Its row goes with its thread, or by that number from another Customer's thread (tested above).
+      "representative_call.external_id",
       "representative_customer_identity.external_id",
       "representative_customer_merge.hand_off_ids",
       "representative_customer_merge.identity_ids",

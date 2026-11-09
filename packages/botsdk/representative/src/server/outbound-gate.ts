@@ -12,11 +12,13 @@ import {
   AccountSendError,
   type ChannelOf,
   type CustomerChannel,
+  smsChannel,
   webChatChannel,
 } from "./customer-proof";
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
+  customerAuthors,
   draftRule,
   type GateOutcome,
   type OutboundKind,
@@ -27,6 +29,7 @@ import {
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeThread,
+  representativeCall,
   representativeThreadMessage,
 } from "./db/schema";
 import { isQuiet, quietEndsAt, zoneOr } from "./quiet-hours";
@@ -50,7 +53,7 @@ export const channelLimits = () =>
   );
 
 /** What every sender of a message to a Customer is given: the Channel it goes by, which the gate asks for limits. */
-export type ViaChannel = { channel: Pick<CustomerChannel, "reach"> };
+export type ViaChannel = { channel: Pick<CustomerChannel, "reach" | "hasAccount"> };
 
 /** The fixed order. A rule with no check yet (`liveChecks`) passes everything until its ticket adds one. */
 export const gateOrder = [
@@ -143,6 +146,8 @@ type GateFacts = {
   reach: MessagingReach;
   /** Hours since the Customer last wrote from the address it goes to; null when they never have. */
   hoursSinceHeard: number | null;
+  /** It would go by text from a Call's thread, with no account to send it by: nothing can be sent. */
+  noAccount: boolean;
   /** Whether a message of this kind waits for the owner when the Channel's limits stop it; otherwise it is dropped. */
   holdsWhenLimited: boolean;
   /** How long the message is. */
@@ -164,19 +169,23 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
   on: ({ enabled }) => (enabled ? null : "drop"),
   topic: ({ topicMode, sourcesOnTopic }) =>
     topicMode === "auto" && sourcesOnTopic ? null : "hold",
-  caps: ({ sentInARow, sentToday, maxInARow, maxPerDay }) =>
-    sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
-  quietHours: ({ businessStarted, quiet }) => (businessStarted && quiet ? "hold" : null),
+  // A message that can't go by any means isn't held for the owner to send: the channel rule drops it.
+  caps: ({ noAccount, sentInARow, sentToday, maxInARow, maxPerDay }) =>
+    !noAccount && (sentInARow >= maxInARow || sentToday >= maxPerDay) ? "hold" : null,
+  quietHours: ({ noAccount, businessStarted, quiet }) =>
+    !noAccount && businessStarted && quiet ? "hold" : null,
   // Held, never sent by another way: the address is the one the Customer wrote from, and the owner decides.
-  channel: ({ reach, businessStarted, hoursSinceHeard, length, holdsWhenLimited }) =>
-    (reach.canStartConversation === false && businessStarted) ||
-    (reach.replyWindowHours !== undefined &&
-      (hoursSinceHeard === null || hoursSinceHeard > reach.replyWindowHours)) ||
-    (reach.maxLength !== undefined && !reach.cutsLongMessages && length > reach.maxLength)
-      ? holdsWhenLimited
-        ? "hold"
-        : "drop"
-      : null,
+  channel: ({ noAccount, reach, businessStarted, hoursSinceHeard, length, holdsWhenLimited }) =>
+    noAccount
+      ? "drop"
+      : (reach.canStartConversation === false && businessStarted) ||
+          (reach.replyWindowHours !== undefined &&
+            (hoursSinceHeard === null || hoursSinceHeard > reach.replyWindowHours)) ||
+          (reach.maxLength !== undefined && !reach.cutsLongMessages && length > reach.maxLength)
+        ? holdsWhenLimited
+          ? "hold"
+          : "drop"
+        : null,
 };
 
 /** The rule whose hold lets itself go: the message is sent when the quiet period ends. */
@@ -209,7 +218,7 @@ export type Outgoing = {
    * The Channel it goes by, which the gate asks for its platform's limits (ticket #1305). Required, so a
    * sender can't forget it: a path with no Channel can't pass the gate.
    */
-  channel: Pick<CustomerChannel, "reach">;
+  channel: Pick<CustomerChannel, "reach" | "hasAccount">;
   /**
    * The id of the held message this is the automatic release of: it also passes `on`, `caps` and the topic, and
    * holding it again writes no second held row. A Page for it counts the other held messages only.
@@ -347,7 +356,7 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
   const [lastHeard] = await tx
     .select({ position: max(message.position) })
     .from(message)
-    .where(and(eq(message.threadId, threadId), eq(message.author, "customer")));
+    .where(and(eq(message.threadId, threadId), inArray(message.author, customerAuthors)));
   const [inARow] = await tx
     .select({ count: count() })
     .from(message)
@@ -375,6 +384,16 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
   return { sentInARow: inARow!.count, sentToday: today!.count };
 }
 
+/** Whether a Call has joined `threadId`, or is on it now. */
+async function threadHasCall(tx: Transaction, threadId: string) {
+  const [call] = await tx
+    .select({ id: representativeCall.id })
+    .from(representativeCall)
+    .where(eq(representativeCall.threadId, threadId))
+    .limit(1);
+  return call !== undefined;
+}
+
 /** Hours from the Customer's last message from `from` on the thread to `now`; null when they never wrote from it. */
 async function hoursSinceHeard(
   tx: Transaction,
@@ -389,7 +408,7 @@ async function hoursSinceHeard(
     .where(
       and(
         eq(message.threadId, threadId),
-        eq(message.author, "customer"),
+        inArray(message.author, customerAuthors),
         eq(message.channel, from.channel),
         eq(message.externalId, from.externalId),
       ),
@@ -460,6 +479,7 @@ export async function passGate(
     .select({
       threadState: representativeThread.state,
       customerId: representativeThread.customerId,
+      channelAccountId: representativeThread.channelAccountId,
       enabled: representative.enabled,
       liveReleaseId: representative.liveReleaseId,
       userId: representative.userId,
@@ -510,6 +530,13 @@ export async function passGate(
     businessStarted,
     reach,
     holdsWhenLimited: heldWhenLimited.has(kind),
+    // Only a thread a Call opened has no account of its own: what a text opened keeps its retries.
+    noAccount:
+      rules.includes("channel") &&
+      to.channel === smsChannel &&
+      row.channelAccountId === null &&
+      (await threadHasCall(tx, threadId)) &&
+      (await outgoing.channel.hasAccount?.(tx, to.channel, row.representativeId)) === false,
     length: content?.text.length ?? 0,
     hoursSinceHeard:
       rules.includes("channel") && reach.replyWindowHours !== undefined

@@ -8,6 +8,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import type { Transaction } from "@botsdk/bot/plugin";
 import type {
+  CallEntryView,
   CustomerView,
   ThreadHolder,
   ThreadMessageView,
@@ -16,8 +17,10 @@ import type {
   ThreadWaitingOn,
 } from "../shared/contract";
 import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
+import { transcriptLines } from "./call-transcript";
 import {
   representative,
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeHandOff,
@@ -31,7 +34,7 @@ import {
 } from "./db/schema";
 import { isMergedAway, notMergedAway } from "./customer-merge";
 import { combinedProfilesOf, nameIn, setOwnerValue } from "./customer-profile";
-import { voidProofs } from "./customer-proof";
+import { smsChannel, voidProofs } from "./customer-proof";
 import { grouped } from "./customers";
 import { lastMessageQuery } from "./last-message";
 import { heldWaitingQuery } from "./reply-drafts";
@@ -87,7 +90,7 @@ export function waitingOn(
   heldWaiting = false,
 ): ThreadWaitingOn {
   if (state === "closed" || blocked) return null;
-  const speaking = lastAuthor === "customer" || lastAuthor === "bot";
+  const speaking = lastAuthor === "customer" || lastAuthor === "bot" || lastAuthor === "call";
   if (state === "owner") {
     if (speaking || turnDue || leftForOwner) return "owner";
     if (botWorking) return "bot";
@@ -335,6 +338,43 @@ export async function updateIdentity(
             sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${decision.threadId} and ${representativeThread.customerId} <> ${id} and ${representative.userId} = ${userId})`,
           ),
         );
+      // A delete finds their Calls by number, on any thread a merge has left them on.
+      if (held.channel === smsChannel && channel === smsChannel) {
+        const call = representativeCall;
+        const theirCalls = and(
+          eq(call.externalId, held.externalId),
+          inArray(
+            call.threadId,
+            tx
+              .select({ id: representativeThread.id })
+              .from(representativeThread)
+              .innerJoin(
+                representative,
+                eq(representative.id, representativeThread.representativeId),
+              )
+              .where(eq(representative.userId, userId)),
+          ),
+        );
+        // Each thread's lock before its Calls, the order a Call's request and end take them in.
+        await tx
+          .select({ id: representativeThread.id })
+          .from(representativeThread)
+          .where(
+            inArray(
+              representativeThread.id,
+              tx.select({ id: call.threadId }).from(call).where(theirCalls),
+            ),
+          )
+          .orderBy(representativeThread.id)
+          .for("update");
+        await tx
+          .update(message)
+          .set({ externalId })
+          .where(
+            inArray(message.id, tx.select({ id: call.messageId }).from(call).where(theirCalls)),
+          );
+        await tx.update(call).set({ externalId }).where(theirCalls);
+      }
       // What waits for the owner goes where this Customer now is, as what the thread sends next does.
       await tx
         .update(decision)
@@ -487,17 +527,21 @@ function summary(row: ThreadRow, customerName: string | null): ThreadSummary {
     },
     lastHeard: { channel: row.lastChannel, externalId: row.lastExternalId },
     holder,
-    waitingOn: waitingOn(
-      row.state,
-      row.lastAuthor,
-      row.blockedAt !== null,
-      row.turnId !== null || row.waitingFrom !== null,
-      row.botWorking,
-      row.lastReplyKind === codeHandOffKind,
-      row.limitNotedAt !== null && row.waitingFrom !== null,
-      row.leftForOwnerAt !== null,
-      row.heldWaiting,
-    ),
+    // A thread a Call opened has no message until the Call ends: nobody owes anyone a word yet.
+    waitingOn:
+      row.messageCount === 0
+        ? null
+        : waitingOn(
+            row.state,
+            row.lastAuthor,
+            row.blockedAt !== null,
+            row.turnId !== null || row.waitingFrom !== null,
+            row.botWorking,
+            row.lastReplyKind === codeHandOffKind,
+            row.limitNotedAt !== null && row.waitingFrom !== null,
+            row.leftForOwnerAt !== null,
+            row.heldWaiting,
+          ),
     messageCount: row.messageCount,
     updatedAt: row.updatedAt,
   };
@@ -600,8 +644,32 @@ export async function getThread(
         ...message,
         reply:
           message.author === "representative" ? { kind: replyKind, sources: sources ?? [] } : null,
+        call: null as CallEntryView | null,
       })),
     );
+  const calls = await db
+    .select({
+      messageId: representativeCall.messageId,
+      status: representativeCall.status,
+      startedAt: representativeCall.startedAt,
+      endedAt: representativeCall.endedAt,
+      requests: representativeCall.requests,
+    })
+    .from(representativeCall)
+    .where(eq(representativeCall.threadId, threadId))
+    .orderBy(asc(representativeCall.startedAt));
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  for (const call of calls) {
+    const message = call.messageId === null ? undefined : byId.get(call.messageId);
+    if (message) {
+      const { messageId: _messageId, ...times } = call;
+      // A lost Call's entry says it has no transcript and lists its requests, for a Turn to read;
+      // none of that is anything the Representative said.
+      const lines = call.status === "ended_no_transcript" ? [] : transcriptLines(message.text);
+      message.call = { ...times, lines };
+    }
+  }
+  const live = calls.filter((call) => call.status === "in_progress").at(-1);
   const { identities, name } = await readCustomer(context, userId, row.customerId);
   const held = await db
     .select({
@@ -631,5 +699,6 @@ export async function getThread(
     identities,
     messages,
     held,
+    liveCall: live ? { startedAt: live.startedAt, requests: live.requests } : null,
   };
 }
