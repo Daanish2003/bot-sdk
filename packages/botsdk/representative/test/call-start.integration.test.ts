@@ -313,6 +313,70 @@ describe("declining a Call", () => {
     expect(await scene.start("call-over")).toEqual({ decision: "decline" });
     expect(await scene.calls()).toHaveLength(1);
   });
+
+  /** `n` Calls of the caller on `threadId`, each with the given status. */
+  const seedCalls = (
+    scene: Awaited<ReturnType<typeof world>>,
+    threadId: string,
+    n: number,
+    status: "in_progress" | "ended",
+  ) =>
+    getTestDb()
+      .insert(representativeCall)
+      .values(
+        Array.from({ length: n }, (_, index) => ({
+          id: uuidv7(),
+          callId: `seed-${status}-${index}`,
+          threadId,
+          channelAccountId: scene.accountId,
+          externalId: caller,
+          status,
+          startedAt: new Date(),
+        })),
+      );
+
+  it("counts Calls still going toward the limit, and not one short of it", async () => {
+    const scene = await world();
+    await scene.start("call-0");
+    const threadId = await scene.threadOf();
+    await seedCalls(scene, threadId, inboundLimit - 2, "in_progress");
+
+    expect((await scene.start("call-under")).decision).toBe("answer");
+
+    expect(await scene.start("call-over")).toEqual({ decision: "decline" });
+  });
+
+  it("counts a finished Call once, by its entry and not its row", async () => {
+    const scene = await world();
+    await scene.start("call-0");
+    const threadId = await scene.threadOf();
+    await seedCalls(scene, threadId, inboundLimit - 3, "in_progress");
+    await seedCalls(scene, threadId, 1, "ended");
+    await getTestDb().insert(representativeThreadMessage).values({
+      id: uuidv7(),
+      threadId,
+      position: 1,
+      author: "call",
+      channel: "sms",
+      externalId: caller,
+      text: "Caller: Hello",
+      verified: false,
+      createdAt: new Date(),
+    });
+
+    // 58 Calls going and one finished make 59, so this one is the 60th.
+    expect((await scene.start("call-under")).decision).toBe("answer");
+    expect(await scene.start("call-over")).toEqual({ decision: "decline" });
+  });
+
+  it("answers a repeated start of a Call at the limit, which it has counted already", async () => {
+    const scene = await world();
+    await scene.start("call-0");
+    await seedCalls(scene, await scene.threadOf(), inboundLimit - 1, "in_progress");
+
+    expect((await scene.start("call-0")).decision).toBe("answer");
+    expect(await scene.start("call-1")).toEqual({ decision: "decline" });
+  });
 });
 
 describe("what the Voice agent is told", () => {
@@ -441,6 +505,37 @@ async function holdSms(representativeId: string, smsNumber: string) {
 }
 
 describe("the thread a Call opens", () => {
+  it("moves an existing thread onto the SMS account on the number that was called", async () => {
+    const scene = await world();
+    const other = await holdSms(scene.id, "+15559990000");
+    await scene.texts("Hello");
+    await getTestDb().update(representativeThread).set({ channelAccountId: other });
+    const paired = await holdSms(scene.id, "+15551234567");
+
+    await scene.start();
+
+    const [thread] = await getTestDb()
+      .select({ channelAccountId: representativeThread.channelAccountId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, (await scene.calls())[0]!.threadId));
+    expect(thread!.channelAccountId).toBe(paired);
+  });
+
+  it("leaves an existing thread's account alone when no SMS account has that number", async () => {
+    const scene = await world();
+    const other = await holdSms(scene.id, "+15559990000");
+    await scene.texts("Hello");
+    await getTestDb().update(representativeThread).set({ channelAccountId: other });
+
+    await scene.start();
+
+    const [thread] = await getTestDb()
+      .select({ channelAccountId: representativeThread.channelAccountId })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, (await scene.calls())[0]!.threadId));
+    expect(thread!.channelAccountId).toBe(other);
+  });
+
   it("replies through the SMS account on the number that was called", async () => {
     const scene = await world();
     await holdSms(scene.id, "+15559990000");

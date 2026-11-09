@@ -93,9 +93,10 @@ function callPrompt(
 /**
  * Keeps an answered Call: the caller's Customer, made if they're a stranger as on a text Channel, the
  * thread open between them and the Representative, and one row for the call id: a repeated start
- * changes nothing. A thread this opens replies through the SMS account on the number called, if the
- * Representative holds one. False when the Representative has gone since it was asked. A caller is unverified, so
- * nothing about the thread's address changes for an existing one.
+ * changes nothing. The thread replies through the SMS account on the number called, if the Representative
+ * holds one, so a follow-up comes from the number the Customer called, on a thread they already had too.
+ * False when the Representative has gone since it was asked. A caller is unverified, so the Customer's
+ * address on an existing thread stays as it was.
  */
 async function recordCall(
   context: FeatureContext,
@@ -153,7 +154,7 @@ async function recordCall(
       .onConflictDoUpdate({
         target: [representativeThread.customerId, representativeThread.representativeId],
         targetWhere: sql`state <> 'closed'`,
-        set: activeAt(now),
+        set: { ...activeAt(now), ...(paired && { channelAccountId: paired.id }) },
       })
       .returning({ id: representativeThread.id, createdAt: representativeThread.createdAt });
     const threadId = thread!.id;
@@ -191,7 +192,10 @@ async function startCall(
   const heard = { channel: smsChannel, externalId: number };
   const { representativeId } = account;
   const now = context.clock();
-  if ((await declineReason(context.db, { representativeId, heard, now })) !== null) return decline;
+  const exceptCall = { channelAccountId: account.id, callId };
+  if ((await declineReason(context.db, { representativeId, heard, now, exceptCall })) !== null) {
+    return decline;
+  }
   const [live] = await context.db
     .select({ userId: representative.userId, content: representativeRelease.content })
     .from(representative)

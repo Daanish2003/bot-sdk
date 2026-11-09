@@ -1,16 +1,18 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, count, eq, gt, ne, not } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { identityAddress } from "../shared/contract";
+import { smsChannel } from "./customer-proof";
 import type { Heard } from "./customers";
 import {
   representative,
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeThread,
 } from "./db/schema";
-import { overInboundLimit } from "./inbound-limit";
+import { inboundWindowMs, overInboundLimit } from "./inbound-limit";
 
 /*
  * Whether a Customer may be served, asked without storing anything (ticket #1380), for a contact that
@@ -27,14 +29,61 @@ export type DeclineReason =
   | "no_release";
 
 /**
+ * The `externalId` number's Calls still going in the last hour, across the owner's Representatives,
+ * but `except` itself. A finished Call counts as its entry instead, since it stops being
+ * `in_progress` in the commit that adds that entry, so it never counts twice.
+ */
+async function liveCallsOf(
+  db: FeatureContext["db"] | Transaction,
+  userId: string,
+  externalId: string,
+  now: Date,
+  except: { channelAccountId: string; callId: string } | undefined,
+) {
+  const call = representativeCall;
+  const [row] = await db
+    .select({ live: count() })
+    .from(call)
+    .innerJoin(representativeThread, eq(representativeThread.id, call.threadId))
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(
+      and(
+        eq(representative.userId, userId),
+        eq(call.externalId, externalId),
+        eq(call.status, "in_progress"),
+        gt(call.startedAt, new Date(now.getTime() - inboundWindowMs)),
+        except &&
+          not(
+            and(
+              eq(call.channelAccountId, except.channelAccountId),
+              eq(call.callId, except.callId),
+            )!,
+          ),
+      ),
+    );
+  return row?.live ?? 0;
+}
+
+/**
  * Why the identity at `heard` can't be served by `representativeId` at `now`, or null when it can, a
  * stranger included. A Representative that no longer exists is off. The first that applies, in the
  * order a message meets them: its limit before its Customer is looked at, and nobody being there to
  * answer last. Takes no locks and writes nothing, so what it says can change as soon as it's said.
+ * `exceptCall` is the Call asking, which a repeated start has already counted toward the limit.
  */
 export async function declineReason(
   db: FeatureContext["db"] | Transaction,
-  { representativeId, heard, now }: { representativeId: string; heard: Heard; now: Date },
+  {
+    representativeId,
+    heard,
+    now,
+    exceptCall,
+  }: {
+    representativeId: string;
+    heard: Heard;
+    now: Date;
+    exceptCall?: { channelAccountId: string; callId: string };
+  },
 ): Promise<DeclineReason | null> {
   const [owner] = await db
     .select({
@@ -48,7 +97,14 @@ export async function declineReason(
   // As a message's sender is, so the same person isn't a stranger for how the number was written.
   const externalId = identityAddress(heard.channel, heard.externalId);
   const asStored = { channel: heard.channel, externalId };
-  if ((await overInboundLimit(db, owner.userId, asStored, now)) !== null) return "over_limit";
+  // Calls first: one ending between the two reads is counted twice, at worst one over, not missed.
+  const liveCalls =
+    heard.channel === smsChannel
+      ? await liveCallsOf(db, owner.userId, externalId, now, exceptCall)
+      : 0;
+  if ((await overInboundLimit(db, owner.userId, asStored, now, liveCalls)) !== null) {
+    return "over_limit";
+  }
   const identity = representativeCustomerIdentity;
   const [known] = await db
     .select({
