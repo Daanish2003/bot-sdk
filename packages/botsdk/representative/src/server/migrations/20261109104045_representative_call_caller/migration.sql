@@ -1,0 +1,1 @@
+ALTER TABLE "botsdk"."representative_call" ADD COLUMN "caller" text NOT NULL;

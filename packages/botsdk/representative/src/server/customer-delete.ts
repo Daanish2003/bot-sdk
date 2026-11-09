@@ -19,10 +19,11 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { holdCustomers, isMergedAway } from "./customer-merge";
 import { memberIds, standingMergesOf } from "./customer-profile";
 import { fixedReplyKinds } from "../shared/replies";
-import { holdIdentities } from "./customer-proof";
+import { holdIdentities, smsChannel } from "./customer-proof";
 import { customerSummaryKey } from "./customer-summary";
 import type { Heard } from "./customers";
 import {
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -166,7 +167,8 @@ async function settleThreadWait(
  * thread further, so it is found by their address, across the owner's other Customers. Those words, and
  * any summary made from them or pass about to make one, go; so does a hand-off from them, whose
  * Assignment is returned for redaction. The other Customer's own words stay, and a thread with none
- * left goes. One that stays stops waiting on them. Gate decisions at their address go too, what they
+ * left goes. One that stays stops waiting on them. Their Calls on those threads go, with what they
+ * asked for. Gate decisions at their address go too, what they
  * held with them, as a proof can be addressed to them from any thread. Returns the threads it removed,
  * and those Assignments.
  */
@@ -253,6 +255,23 @@ async function removeFromOtherThreads(
         isAt(decision.channel, decision.externalId, addresses),
       ),
     );
+  // A caller is always an SMS identity.
+  const callers = addresses.flatMap(({ channel, externalId }) =>
+    channel === smsChannel ? [externalId] : [],
+  );
+  if (callers.length > 0) {
+    await tx
+      .delete(representativeCall)
+      .where(
+        and(
+          inArray(
+            representativeCall.threadId,
+            tx.select({ id: thread.id }).from(thread).where(inArray(thread.customerId, others)),
+          ),
+          inArray(representativeCall.caller, callers),
+        ),
+      );
+  }
   const handOff = representativeHandOff;
   const handOffs = await tx
     .delete(handOff)

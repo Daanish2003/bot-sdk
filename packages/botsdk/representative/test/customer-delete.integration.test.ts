@@ -39,6 +39,7 @@ import {
   representativeProfileValue,
   representativeThread,
   representativeChannelAccount,
+  representativeCall,
   representativeThreadMail,
   representativeThreadMessage,
   representativeVerification,
@@ -569,6 +570,41 @@ describe("deleting a Customer", () => {
         .where(eq(representativeCustomerSummary.threadId, shared.id)),
     ).toEqual([]);
     expect((await rpc.representative.customerList()).map((each) => each.id)).toEqual([ada.id]);
+  });
+
+  it("removes a Call they made on another Customer's thread, and leaves that Customer's own", async () => {
+    const { rpc, heard, customerAt, settle } = await instance({ turnRounds: [answers, answers] });
+    await heard("Ada speaks.", adaNumber);
+    await heard("Bob speaks.", bobNumber);
+    await settle();
+    const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
+    const [adaThread] = await threadsOfCustomers([ada.id]);
+    const bobPhone = "+15550077";
+    const adaPhone = "+15550011";
+    await rpc.representative.customerAddIdentity({
+      id: bob.id,
+      channel: "sms",
+      externalId: bobPhone,
+    });
+    const call = (callId: string, caller: string) => ({
+      id: uuidv7(),
+      callId,
+      threadId: adaThread!.id,
+      caller,
+      startedAt: new Date(),
+      requests: [{ request: `A request from ${caller}`, emergency: false }],
+    });
+    await getTestDb()
+      .insert(representativeCall)
+      .values([call("bobs-call", bobPhone), call("adas-call", adaPhone)]);
+
+    await rpc.representative.customerDelete({ id: bob.id });
+
+    const left = await getTestDb()
+      .select({ callId: representativeCall.callId })
+      .from(representativeCall)
+      .where(eq(representativeCall.threadId, adaThread!.id));
+    expect(left.map((row) => row.callId)).toEqual(["adas-call"]);
   });
 
   it("strips what it removed from a merge that still stands, and the merge can still be undone", async () => {
@@ -1347,6 +1383,16 @@ describe("the completeness of a Customer's delete", () => {
         threadId: adaThread!.id,
         subject: "Opening hours",
         messageIds: ["first@mail.example"],
+      });
+    await getTestDb()
+      .insert(representativeCall)
+      .values({
+        id: uuidv7(),
+        callId: "ada-call",
+        threadId: adaThread!.id,
+        caller: "+15550011",
+        startedAt: new Date(),
+        requests: [{ request: "Fix the AC at 12 Elm Street.", emergency: false }],
       });
     const { reached, customerTable, edges } = await rowsLinkedTo([ada.id, bob.id]);
     // Every table a chain of foreign keys ties to a Customer must be seeded above, so a new one

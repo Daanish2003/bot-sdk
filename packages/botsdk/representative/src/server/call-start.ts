@@ -161,7 +161,14 @@ async function recordCall(
     }
     await tx
       .insert(representativeCall)
-      .values({ id: uuidv7(), callId, threadId, channelAccountId: account.id, startedAt: now })
+      .values({
+        id: uuidv7(),
+        callId,
+        threadId,
+        caller: heard.externalId,
+        channelAccountId: account.id,
+        startedAt: now,
+      })
       .onConflictDoNothing();
     return true;
   });

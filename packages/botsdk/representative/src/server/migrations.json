@@ -142,5 +142,9 @@
   {
     "name": "20261109093121_representative_call",
     "sql": "CREATE TABLE \"botsdk\".\"representative_call\" (\n\t\"id\" uuid PRIMARY KEY,\n\t\"call_id\" text NOT NULL,\n\t\"thread_id\" uuid NOT NULL,\n\t\"channel_account_id\" uuid,\n\t\"started_at\" timestamp NOT NULL,\n\t\"ended_at\" timestamp,\n\t\"status\" text DEFAULT 'in_progress' NOT NULL,\n\t\"requests\" jsonb DEFAULT '[]' NOT NULL,\n\tCONSTRAINT \"representative_call_call_id\" UNIQUE(\"channel_account_id\",\"call_id\")\n);\n--> statement-breakpoint\nCREATE INDEX \"representative_call_thread_idx\" ON \"botsdk\".\"representative_call\" (\"thread_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_call\" ADD CONSTRAINT \"representative_call_thread_id_representative_thread_id_fkey\" FOREIGN KEY (\"thread_id\") REFERENCES \"botsdk\".\"representative_thread\"(\"id\") ON DELETE CASCADE;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_call\" ADD CONSTRAINT \"representative_call_channel_account_id_channel_account_id_fkey\" FOREIGN KEY (\"channel_account_id\") REFERENCES \"botsdk\".\"channel_account\"(\"id\") ON DELETE SET NULL;"
+  },
+  {
+    "name": "20261109104045_representative_call_caller",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_call\" ADD COLUMN \"caller\" text NOT NULL;"
   }
 ]

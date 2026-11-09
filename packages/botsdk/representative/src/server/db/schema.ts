@@ -873,6 +873,8 @@ export const representativeCall = botsdkSchema.table(
   {
     id: uuid("id").primaryKey(),
     callId: text("call_id").notNull(),
+    /** The caller's number, as their SMS identity holds it: a Customer's delete finds their Calls by it. */
+    caller: text("caller").notNull(),
     threadId: uuid("thread_id")
       .notNull()
       .references((): AnyPgColumn => representativeThread.id, { onDelete: "cascade" }),
