@@ -888,6 +888,7 @@ describe("who can reach a Turn", () => {
       "POST /representative/unsubscribe/:token",
       "POST /representative/voice/:accountId/start",
       "POST /representative/voice/:accountId/request",
+      "POST /representative/voice/:accountId/end",
     ]);
     // The core's hooks: a stranger on a held account (#1334), and mail to a Representative's address (#1346).
     expect(typeof made.onStranger).toBe("function");

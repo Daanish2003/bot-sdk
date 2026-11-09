@@ -526,9 +526,10 @@ export const representativeTurn = botsdkSchema.table(
 
 /**
  * Who wrote a thread message; a `note` is the fixed line the Customer gets when the owner takes
- * over, and a `bot` message is what the Bot finished a hand-off with, for the Customer (ticket #1254).
+ * over, a `bot` message is what the Bot finished a hand-off with, for the Customer (ticket #1254), and
+ * a `call` message is a phone Call's whole transcript, one line per thing said (ticket #1384).
  */
-export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot";
+export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot" | "call";
 
 /**
  * What the pass wrote when a Customer thread closed (ticket #1279): one row per thread, its summary
@@ -867,6 +868,8 @@ export type RecordedRequest = { request: string; callback?: string; emergency: b
  * A phone call a Representative's Voice agent answered (ticket #1382, ADR 0036). `callId` is the
  * vendor's id, unique per voice account so a retry adds nothing and no account can take another's id.
  * It goes with its thread; a voice account removed later leaves the Call on the record without one.
+ * `externalId` is the number it came from, on the SMS channel a caller's Customer is found by.
+ * `messageId` is its `call` entry in the thread (ticket #1384); null until it ends.
  */
 export const representativeCall = botsdkSchema.table(
   "representative_call",
@@ -879,8 +882,10 @@ export const representativeCall = botsdkSchema.table(
     channelAccountId: uuid("channel_account_id").references((): AnyPgColumn => channelAccount.id, {
       onDelete: "set null",
     }),
+    externalId: text("external_id").notNull(),
     startedAt: timestamp("started_at").notNull(),
     endedAt: timestamp("ended_at"),
+    messageId: uuid("message_id"),
     status: text("status").$type<CallStatus>().notNull().default("in_progress"),
     requests: jsonb("requests").$type<RecordedRequest[]>().notNull().default([]),
   },

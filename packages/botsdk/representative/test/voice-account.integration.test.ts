@@ -106,6 +106,7 @@ describe("connecting a voice account", () => {
         greeting: "Hi, this is Front desk.",
         hookUrl: `${linkUrl}/representative/voice/${account!.id}`,
         smsPaired: false,
+        lastCallAt: null,
       },
     });
     expect(secret.length).toBeGreaterThanOrEqual(32);

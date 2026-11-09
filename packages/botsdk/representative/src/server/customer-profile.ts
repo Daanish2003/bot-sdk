@@ -453,7 +453,8 @@ export async function writePassValues(
     // A zone the gate can't read would only be ignored there.
     if (fixed === "time_zone" && !isTimeZone(value)) continue;
     // The Model chooses the line it cites, so the line must also say the value: a verified line can't vouch for a value it doesn't hold.
-    // The query above keeps only these three authors, which are the sources a line can give.
+    // The query above keeps only these three authors, which are the sources a line can give: a
+    // phone Call's transcript, which may be mis-heard, gives none.
     const says = line.text.toLowerCase().includes(value.toLowerCase());
     const status = line.author === "customer" && line.verified && says ? "confirmed" : "claimed";
     const column = fixed

@@ -27,6 +27,7 @@ import { deleteCustomer } from "../src/server/customer-delete";
 import { codeHandOffKind, limitNoteKind, type StoredReplyKind } from "../src/shared/replies";
 import { afterThreadClose, customerSummaryMarker } from "../src/server/customer-summary";
 import {
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -538,6 +539,24 @@ describe("deleting a Customer", () => {
       .set({ lastExternalId: bobNumber, channelAccountId: accountId })
       .where(eq(representativeThread.id, shared.id));
     const [theirHandOff] = await handOffsAt(bobNumber);
+    const callFrom = (externalId: string) => ({
+      id: uuidv7(),
+      callId: externalId,
+      threadId: shared.id,
+      externalId,
+      startedAt: new Date(),
+    });
+    // A Call is found by the SMS channel's number, whatever channel they first wrote on.
+    await getTestDb().insert(representativeCustomerIdentity).values({
+      id: uuidv7(),
+      userId: owner.user.id,
+      customerId: bob.id,
+      channel: "sms",
+      externalId: bobNumber,
+    });
+    await getTestDb()
+      .insert(representativeCall)
+      .values([callFrom(bobNumber), callFrom(adaNumber)]);
 
     const { assignmentIds } = await deleteCustomer(owner.context(), owner.user.id, bob.id);
 
@@ -551,6 +570,12 @@ describe("deleting a Customer", () => {
       .where(eq(representativeThreadMessage.threadId, shared.id));
     expect(left.map((row) => row.text)).toEqual(["Ada speaks."]);
     expect(left.map((row) => row.externalId)).toEqual([adaNumber]);
+    expect(
+      await getTestDb()
+        .select({ externalId: representativeCall.externalId })
+        .from(representativeCall)
+        .where(eq(representativeCall.threadId, shared.id)),
+    ).toEqual([{ externalId: adaNumber }]);
     const [thread] = await getTestDb()
       .select({
         lastExternalId: representativeThread.lastExternalId,
@@ -1348,6 +1373,13 @@ describe("the completeness of a Customer's delete", () => {
         subject: "Opening hours",
         messageIds: ["first@mail.example"],
       });
+    await getTestDb().insert(representativeCall).values({
+      id: uuidv7(),
+      callId: "ada-call",
+      threadId: adaThread!.id,
+      externalId: adaNumber,
+      startedAt: new Date(),
+    });
     const { reached, customerTable, edges } = await rowsLinkedTo([ada.id, bob.id]);
     // Every table a chain of foreign keys ties to a Customer must be seeded above, so a new one
     // can't pass unchecked.
@@ -1386,6 +1418,8 @@ describe("the completeness of a Customer's delete", () => {
     // above), and a message's Assignment goes with the message. An address is matched to another
     // Customer's messages and hand-offs (tested above), and its other columns go with their row.
     const covered = [
+      // Its row goes with its thread, or by that number from another Customer's thread (tested above).
+      "representative_call.external_id",
       "representative_customer_identity.external_id",
       "representative_customer_merge.hand_off_ids",
       "representative_customer_merge.identity_ids",
