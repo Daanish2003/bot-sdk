@@ -29,8 +29,20 @@ An LLM vendor a user can chat through, one per TanStack AI chat adapter (Anthrop
 _Avoid_: Vendor, backend
 
 **Model**:
-One specific LLM offered by a Provider. Each Bot has a selected Model, which does its Turns.
+One specific LLM offered by a Provider. Each Bot has a selected Model, which does its Turns when Model routing finds no Model rule for them.
 _Avoid_: Engine, LLM (as a noun for one choice)
+
+**Model routing**:
+Choosing which Model does a Turn, or a Helper's task, when it starts: the request is labelled with a Task kind, and that kind's Model rule picks the first Model the user can reach that can do the work. A Conversation stays on its Model until the Task kind changes. When a model call fails because its Model is unavailable, it moves to the next Model in the rule. The user can see which Model and Task kind each Turn used, and can name the Model for one Message instead.
+_Avoid_: Router (that queues Triggers), model router, auto model
+
+**Task kind**:
+A named kind of request, such as Quick, Coding, Deep work or Writing, described in a few words so a request can be labelled with it. The Host supplies a starting set, and a user can add, change or remove kinds. Needing a computer, images or files is never a Task kind; it only rules out Models that can't.
+_Avoid_: Category, intent, task (an ordinary word)
+
+**Model rule**:
+The ordered list of Models for one Task kind. The Host sets defaults, a user's rule replaces the Host's for all their Bots, and a Bot's rule replaces its user's.
+_Avoid_: Mapping, preference, fallback list
 
 **Provider credentials**:
 What one user supplies to reach one Provider: usually an API key, sometimes with an account or region, or just a host for a local Provider. For OpenAI it can instead be a linked ChatGPT plan, made by signing in to ChatGPT, which reaches only the Models the plan offers and is used only when the user has no OpenAI API key. When a user has them for a Provider, their Bots' Turns and Helpers on it always use them and never count against their Quota.
