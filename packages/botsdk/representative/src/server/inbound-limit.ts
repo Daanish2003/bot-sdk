@@ -1,5 +1,6 @@
 import { and, desc, eq, gt } from "drizzle-orm";
 
+import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { representative, representativeThread, representativeThreadMessage } from "./db/schema";
 
@@ -19,13 +20,13 @@ const windowMs = 60 * 60_000;
  * oldest of its newest `inboundLimit` messages leaves the hour.
  */
 export async function overInboundLimit(
-  tx: Transaction,
+  db: FeatureContext["db"] | Transaction,
   userId: string,
   heard: { channel: string; externalId: string },
   now: Date,
 ): Promise<number | null> {
   const message = representativeThreadMessage;
-  const [oldest] = await tx
+  const [oldest] = await db
     .select({ createdAt: message.createdAt })
     .from(message)
     .innerJoin(representativeThread, eq(representativeThread.id, message.threadId))

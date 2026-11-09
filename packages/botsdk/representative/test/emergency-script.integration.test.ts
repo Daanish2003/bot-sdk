@@ -28,7 +28,7 @@ import {
   representativeThread,
 } from "../src/server/db/schema";
 import { liveChecks, passGate } from "../src/server/outbound-gate";
-import { saysKeyword } from "../src/server/emergency-script";
+import { pageEmergency, saysKeyword } from "../src/server/emergency-script";
 import { representativeFeature } from "../src/server/plugin";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
 
@@ -802,5 +802,85 @@ describe("what the Release holds", () => {
     await world.hears("fire");
 
     await expect.poll(world.got, poll).toEqual([script]);
+  });
+});
+
+describe("a Page with no script (ticket #1380)", () => {
+  const pagesOnly = async (world: World) => {
+    const threadId = await world.threadId();
+    const { pages } = world.deps.parts.features.find(
+      ({ feature }) => feature.id === "representative",
+    )!.context;
+    await getTestDb().transaction((tx) => pageEmergency({ pages }, tx, { threadId }));
+  };
+  const emergencies = async (world: World) =>
+    (await world.pages()).filter(({ urgency }) => urgency === "emergency");
+
+  it("Pages the owner at once, and sends and stores nothing", async () => {
+    const world = await instance([]);
+    await world.heard("Hello");
+
+    await pagesOnly(world);
+
+    expect(await emergencies(world)).toHaveLength(1);
+    expect(world.got()).toEqual([]);
+    expect(await world.decisions()).toEqual([]);
+    const { messages, held } = await world.thread();
+    expect(messages.map(({ author, text }) => [author, text])).toEqual([["customer", "Hello"]]);
+    expect(held).toEqual([]);
+  });
+
+  it("Pages again only once the owner has acknowledged", async () => {
+    const world = await instance([]);
+    await world.heard("Hello");
+
+    await pagesOnly(world);
+    await pagesOnly(world);
+    const pages = await emergencies(world);
+    expect(pages).toHaveLength(1);
+
+    await world.rpc.pages.acknowledge({ id: pages[0]!.id });
+    await pagesOnly(world);
+
+    expect(await emergencies(world)).toHaveLength(2);
+  });
+
+  it("shares its dedupe with a text emergency on the thread, in both directions", async () => {
+    const world = await instance([]);
+    await world.hears("fire");
+    await expect.poll(world.got, poll).toEqual([script]);
+
+    await pagesOnly(world);
+    expect(await emergencies(world)).toHaveLength(1);
+
+    const [first] = await emergencies(world);
+    await world.rpc.pages.acknowledge({ id: first!.id });
+    await pagesOnly(world);
+    expect(await emergencies(world)).toHaveLength(2);
+
+    await world.hears("fire again");
+    await expect.poll(world.got, poll).toEqual([script, script]);
+    expect(await emergencies(world)).toHaveLength(2);
+  });
+
+  it("Pages no one for a blocked Customer, as a text emergency doesn't", async () => {
+    const world = await instance([]);
+    await world.heard("Hello");
+    const { customer } = await world.thread();
+    await world.rpc.representative.customerSetBlocked({ id: customer.id, blocked: true });
+
+    await pagesOnly(world);
+
+    expect(await emergencies(world)).toEqual([]);
+  });
+
+  it("Pages for a Customer who opted out, as the script still reaches them", async () => {
+    const world = await instance([]);
+    await world.heard("Hello");
+    await world.arrives("stop");
+
+    await pagesOnly(world);
+
+    expect(await emergencies(world)).toHaveLength(1);
   });
 });

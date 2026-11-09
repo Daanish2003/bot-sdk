@@ -5,6 +5,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { page } from "@botsdk/bot/storage";
 import {
   representative,
+  representativeCustomer,
   representativeHeldMessage,
   representativeOutboundDecision,
   representativeThread,
@@ -73,6 +74,84 @@ export async function stopForScript(
     .where(eq(representativeThread.id, threadId));
 }
 
+/** The thread's owner, with its row held, as the writes to it need it; a caller holding the Customer's row took it first. */
+async function holdThreadOwner(tx: Transaction, threadId: string) {
+  const [owner] = await tx
+    .select({
+      userId: representative.userId,
+      representativeId: representative.id,
+      name: representative.name,
+    })
+    .from(representativeThread)
+    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+    .where(eq(representativeThread.id, threadId))
+    .for("update", { of: representativeThread });
+  return owner;
+}
+
+type ThreadOwner = NonNullable<Awaited<ReturnType<typeof holdThreadOwner>>>;
+
+/**
+ * Pages `owner` of an emergency on `threadId`, unless the thread's last emergency Page is still
+ * unacknowledged: a Customer repeating themselves isn't a new alarm. `evenIfPaged` is for news that
+ * Page didn't carry.
+ */
+async function sendEmergencyPage(
+  { pages }: Pick<FeatureContext<"pages">, "pages">,
+  tx: Transaction,
+  owner: ThreadOwner,
+  threadId: string,
+  text: string,
+  evenIfPaged = false,
+) {
+  const cause = `emergency_script:${threadId}`;
+  const [unacknowledged] = await tx
+    .select({ id: page.id })
+    .from(page)
+    .where(and(eq(page.userId, owner.userId), eq(page.cause, cause), isNull(page.acknowledgedAt)))
+    .limit(1);
+  if (unacknowledged && !evenIfPaged) return;
+  await pages.send(tx, {
+    userId: owner.userId,
+    cause,
+    urgency: "emergency",
+    title: "A Customer may have an emergency",
+    text,
+    path: `/representatives/${owner.representativeId}`,
+  });
+}
+
+/**
+ * Pages the owner of an emergency on `threadId` with no script to send, for when something else tells
+ * the Customer what to do: nothing goes to them and nothing is stored on the thread. The same Page as
+ * `sendEmergencyScript`'s and the same dedupe, which each one's Pages count toward; a blocked Customer
+ * Pages no one, as there. Takes the thread's row; a caller holding the Customer's row took it first.
+ */
+export async function pageEmergency(
+  services: Pick<FeatureContext<"pages">, "pages">,
+  tx: Transaction,
+  { threadId }: { threadId: string },
+) {
+  const owner = await holdThreadOwner(tx, threadId);
+  if (!owner) return;
+  const [customer] = await tx
+    .select({ blockedAt: representativeCustomer.blockedAt })
+    .from(representativeThread)
+    .innerJoin(
+      representativeCustomer,
+      eq(representativeCustomer.id, representativeThread.customerId),
+    )
+    .where(eq(representativeThread.id, threadId));
+  if (customer?.blockedAt) return;
+  await sendEmergencyPage(
+    services,
+    tx,
+    owner,
+    threadId,
+    `${owner.name} heard a Customer report an emergency. Open the thread to reach them.`,
+  );
+}
+
 /**
  * Sends `text`, the script of the Release in effect, to `heard`, if the gate passes it. The owner is
  * Paged unless the Customer is blocked (they chose not to hear from them, and an emergency Page gets
@@ -102,16 +181,7 @@ export async function sendEmergencyScript(
     refusals?: GateRefusal[];
   },
 ) {
-  const [owner] = await tx
-    .select({
-      userId: representative.userId,
-      representativeId: representative.id,
-      name: representative.name,
-    })
-    .from(representativeThread)
-    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
-    .where(eq(representativeThread.id, threadId))
-    .for("update", { of: representativeThread });
+  const owner = await holdThreadOwner(tx, threadId);
   if (!owner) return;
   // Saying it again leaves one to send: this one goes or waits in its place.
   const waiting = await tx
@@ -152,25 +222,16 @@ export async function sendEmergencyScript(
     );
   }
   if (!decision || decision.rule === "blocked") return;
-  const cause = `emergency_script:${threadId}`;
-  const [unacknowledged] = await tx
-    .select({ id: page.id })
-    .from(page)
-    .where(and(eq(page.userId, owner.userId), eq(page.cause, cause), isNull(page.acknowledgedAt)))
-    .limit(1);
   // A Page saying one went doesn't tell the owner this one waits for them, unless one is waiting already.
   const newlyHeld = decision.outcome === "hold" && waiting.length === 0;
-  if (!unacknowledged || newlyHeld) {
-    await services.pages.send(tx, {
-      userId: owner.userId,
-      cause,
-      urgency: "emergency",
-      title: "A Customer may have an emergency",
-      text:
-        decision.outcome === "send"
-          ? `${owner.name} sent a Customer its emergency script. Open the thread to see what they said.`
-          : `${owner.name} couldn't send a Customer its emergency script: the Channel's limits stopped it. Open the thread to send it.`,
-      path: `/representatives/${owner.representativeId}`,
-    });
-  }
+  await sendEmergencyPage(
+    services,
+    tx,
+    owner,
+    threadId,
+    decision.outcome === "send"
+      ? `${owner.name} sent a Customer its emergency script. Open the thread to see what they said.`
+      : `${owner.name} couldn't send a Customer its emergency script: the Channel's limits stopped it. Open the thread to send it.`,
+    newlyHeld,
+  );
 }
