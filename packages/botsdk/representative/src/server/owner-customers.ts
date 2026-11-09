@@ -18,6 +18,7 @@ import type {
 import { codeHandOffKind, type StoredReplyKind } from "../shared/replies";
 import {
   representative,
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeHandOff,
@@ -333,6 +334,18 @@ export async function updateIdentity(
             eq(decision.channel, held.channel),
             eq(decision.externalId, held.externalId),
             sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${decision.threadId} and ${representativeThread.customerId} <> ${id} and ${representative.userId} = ${userId})`,
+          ),
+        );
+      // So does a Call of theirs on another Customer's thread.
+      const call = representativeCall;
+      await tx
+        .update(call)
+        .set({ channel, externalId })
+        .where(
+          and(
+            eq(call.channel, held.channel),
+            eq(call.externalId, held.externalId),
+            sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${call.threadId} and ${representativeThread.customerId} <> ${id} and ${representative.userId} = ${userId})`,
           ),
         );
       // What waits for the owner goes where this Customer now is, as what the thread sends next does.

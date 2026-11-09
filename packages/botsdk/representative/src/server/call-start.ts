@@ -165,7 +165,8 @@ async function recordCall(
         id: uuidv7(),
         callId,
         threadId,
-        caller: heard.externalId,
+        channel: heard.channel,
+        externalId: heard.externalId,
         channelAccountId: account.id,
         startedAt: now,
       })
