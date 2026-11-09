@@ -133,9 +133,11 @@ export function createChannels(sdk: BotSdkContext, options: ChannelOptions): Cha
         throw new PermanentJobError(error.message);
       }
     },
-    heldCredentials: async (id) => {
+    heldCredentials: async (id, platform) => {
       const found = await listenerAccount(sdk, id);
-      return found && found.botId === null ? (found.account?.credentials ?? null) : null;
+      return found && found.botId === null && found.platform === platform
+        ? (found.account?.credentials ?? null)
+        : null;
     },
     sendEmail: async (mail) => {
       if (!email) throw new PermanentJobError("The channel plugin has no email adapter");
@@ -214,7 +216,7 @@ export const channelAccountsService = (sdk: BotSdkContext): ChannelAccountsServi
   removeIn: removeHeldChannelAccounts,
   changed: (ids) => accountsChanged(sdk, ids),
   send: (id, message) => sdk.channels.sendHeld(id, message),
-  credentialsOf: (id) => sdk.channels.heldCredentials(id),
+  credentialsOf: (id, platform) => sdk.channels.heldCredentials(id, platform),
   reach: (platform) => sdk.channels.reach(platform),
   platforms: () => sdk.channels.platforms(),
   webhookUrl: (platform, accountId) => sdk.channels.webhookUrl(platform, accountId),

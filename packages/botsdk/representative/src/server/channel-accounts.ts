@@ -97,21 +97,24 @@ export async function channelAccountsView(
 ): Promise<ChannelAccountsView> {
   const accounts = await listChannelAccounts(context, userId, representativeId);
   const platforms = context.channelAccounts.platforms();
-  const smsNumbers = (
-    await context.db
-      .select({ number: channelAccount.platformBotId })
-      .from(representativeChannelAccount)
-      .innerJoin(
-        channelAccount,
-        eq(channelAccount.id, representativeChannelAccount.channelAccountId),
-      )
-      .where(
-        and(
-          eq(representativeChannelAccount.representativeId, representativeId),
-          eq(channelAccount.platform, smsChannel),
-        ),
-      )
-  ).map((row) => row.number);
+  // Read only when there is a voice account to pair.
+  const smsNumbers = !accounts.some(({ platform }) => platform === voicePlatform)
+    ? []
+    : (
+        await context.db
+          .select({ number: channelAccount.platformBotId })
+          .from(representativeChannelAccount)
+          .innerJoin(
+            channelAccount,
+            eq(channelAccount.id, representativeChannelAccount.channelAccountId),
+          )
+          .where(
+            and(
+              eq(representativeChannelAccount.representativeId, representativeId),
+              eq(channelAccount.platform, smsChannel),
+            ),
+          )
+      ).map((row) => row.number);
   return {
     platforms: platforms.filter(({ platform }) => platform !== voicePlatform),
     voiceOffered: platforms.some(({ platform }) => platform === voicePlatform),
@@ -135,7 +138,7 @@ async function voiceAccountView(
   smsNumbers: readonly string[],
   linkUrl: string | undefined,
 ): Promise<VoiceAccountView | null> {
-  const credentials = await context.channelAccounts.credentialsOf(account.id);
+  const credentials = await context.channelAccounts.credentialsOf(account.id, voicePlatform);
   if (!credentials) return null;
   return {
     greeting: credentials.greeting ?? defaultVoiceGreeting,

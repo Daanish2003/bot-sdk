@@ -74,7 +74,7 @@ export async function regenerateVoiceSecret(
         eq(channelAccount.platform, voicePlatform),
       ),
     );
-  const credentials = held && (await context.channelAccounts.credentialsOf(held.id));
+  const credentials = held && (await context.channelAccounts.credentialsOf(held.id, voicePlatform));
   if (!credentials) {
     throw rpcError("NOT_FOUND", "error.voiceAccountNotFound", "No such voice account");
   }
@@ -83,7 +83,11 @@ export async function regenerateVoiceSecret(
     userId,
     representativeId,
     platform: voicePlatform,
-    credentials: { number: credentials.number!, greeting: credentials.greeting!, secret },
+    credentials: {
+      number: credentials.number ?? "",
+      greeting: credentials.greeting ?? defaultVoiceGreeting,
+      secret,
+    },
   });
   return { secret, view: await channelAccountsView(context, userId, representativeId, linkUrl) };
 }

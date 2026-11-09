@@ -13,7 +13,11 @@ import { toast } from "sonner";
 
 import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
-import type { ChannelAccountsView, HeldChannelAccountView } from "@botsdk/representative/client";
+import {
+  maxVoiceGreetingLength,
+  type ChannelAccountsView,
+  type HeldChannelAccountView,
+} from "@botsdk/representative/client";
 import {
   useConnectVoiceAccount,
   useRegenerateVoiceSecret,
@@ -72,7 +76,7 @@ export function VoiceAccountSection({
           onDone={(view, secret) => {
             onView(view);
             const made = view.accounts.find(({ platform }) => platform === "voice");
-            if (made) setSecrets({ ...secrets, [made.id]: secret });
+            if (made) setSecrets((all) => ({ ...all, [made.id]: secret }));
             setTaking(false);
           }}
           onCancel={() => setTaking(false)}
@@ -148,7 +152,7 @@ export function VoiceAccountSection({
             channelAccountId={account.id}
             onDone={(view, secret) => {
               onView(view);
-              setSecrets({ ...secrets, [account.id]: secret });
+              setSecrets((all) => ({ ...all, [account.id]: secret }));
             }}
           />
           <details className="text-xs text-muted-foreground">
@@ -207,7 +211,7 @@ function VoiceForm({
         autoComplete="off"
         aria-label={t("representative.voiceGreeting")}
         placeholder={t("representative.voiceGreeting")}
-        maxLength={300}
+        maxLength={maxVoiceGreetingLength}
         value={greeting}
         onChange={(event) => setGreeting(event.target.value)}
       />

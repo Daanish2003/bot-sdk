@@ -151,10 +151,10 @@ export type ChannelApi = {
     message: { chatId: string; text: string; resume?: SendProgress },
   ) => Promise<void>;
   /**
-   * The decrypted credentials of account `id`, which a feature holds. Null when there is no such
+   * The decrypted credentials of account `id`, which a feature holds on `platform`. Null when there is no such
    * account, no key of the keyring reads it, or a Bot holds it. The caller checks the account is its own.
    */
-  heldCredentials: (id: string) => Promise<Record<string, string> | null>;
+  heldCredentials: (id: string, platform: string) => Promise<Record<string, string> | null>;
   /**
    * Sends one mail through the email adapter (spec #1176), for a feature's address; throws with no
    * email adapter, and a provider's throw is for the runner to retry.

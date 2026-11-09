@@ -154,7 +154,7 @@ describe("connecting a voice account", () => {
     expect(row!.encrypted).toMatch(/^v2\./);
     expect(row!.encrypted).not.toContain(secret);
     expect(row!.encrypted).not.toContain("Hello there.");
-    expect(await context.channelAccounts.credentialsOf(view.accounts[0]!.id)).toEqual({
+    expect(await context.channelAccounts.credentialsOf(view.accounts[0]!.id, "voice")).toEqual({
       number,
       greeting: "Hello there.",
       secret,
@@ -249,7 +249,7 @@ describe("regenerating the secret", () => {
 
     expect(second.secret).not.toBe(first.secret);
     expect(second.view.accounts.map(({ id }) => id)).toEqual([accountId]);
-    expect(await context.channelAccounts.credentialsOf(accountId)).toEqual({
+    expect(await context.channelAccounts.credentialsOf(accountId, "voice")).toEqual({
       number,
       greeting: "Keep me.",
       secret: second.secret,
