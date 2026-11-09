@@ -109,6 +109,43 @@ export const representativeMessages = {
   "representative.channelAccountWebhookHelp":
     "Set this as the webhook URL on the platform (for Telnyx, on the messaging profile), so its messages reach this Representative.",
   "representative.channelAccountLoadFailed": "The Channel accounts couldn't be loaded. Try again.",
+  "representative.voiceTitle": "Phone calls",
+  "representative.voiceTake": "Take calls on this number",
+  "representative.voiceHelp":
+    "A Voice agent outside this app answers the Call, following this Representative's current Release. Every caller counts as unverified. This app keeps only a number, a greeting and a secret, and no vendor key.",
+  "representative.voiceNumber": "Phone number (E.164)",
+  "representative.voiceGreeting": "Greeting",
+  "representative.voiceGreetingHelp":
+    'Said first. "I\'m an automated assistant, and this call may be transcribed." always follows it.',
+  "representative.voiceConnect": "Connect calls",
+  "representative.voiceCancel": "Cancel",
+  "representative.voiceConnected": "Calls connected",
+  "representative.voiceRemove": "Turn calls off",
+  "representative.voiceNumberLabel": ({ number }: { number: string }) => `Calls to ${number}`,
+  "representative.voiceGreetingFor": ({ greeting }: { greeting: string }) =>
+    `Greeting: ${greeting}`,
+  "representative.voiceHookUrl": "Hook URL",
+  "representative.voiceHookUrlHelp":
+    "Give this to the Voice agent. It calls /start, /request and /end under it, with the secret as a bearer token.",
+  "representative.voiceNoHookUrl":
+    "This app has no public URL set, so there's no hook URL to show.",
+  "representative.voiceSecret": "Secret",
+  "representative.voiceSecretOnce": "Copy it now. It is shown only once.",
+  "representative.voiceRegenerate": "Regenerate secret",
+  "representative.voiceRegenerateConfirm":
+    "Regenerate the secret? The old one stops working at once, and the Voice agent needs the new one.",
+  "representative.voiceRegenerated": "Secret regenerated",
+  "representative.voicePaired":
+    "Paired with your SMS account on this number: follow-up texts come from it.",
+  "representative.voiceNotPaired":
+    "No SMS account has this number, so there are no follow-up texts after a Call.",
+  "representative.voiceChecklist": "Setup checklist",
+  "representative.voiceCheck1":
+    "In LiveKit, create a SIP inbound trunk for your number and a dispatch rule that sends calls to the agent.",
+  "representative.voiceCheck2":
+    "Run the reference agent (apps/livekit-test) with the hook URL and the secret.",
+  "representative.voiceCheck3":
+    "In your phone vendor's console, point the number at LiveKit's SIP address.",
   "representative.assignmentDue": "Work due time",
   "representative.assignmentDueHelp":
     "How long work it hands to a Bot may run. Past it, you are Paged and the Customer gets one note saying the team is still on it. It counts for hand-offs made after you save.",

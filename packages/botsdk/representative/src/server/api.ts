@@ -4,6 +4,8 @@ import {
   approveInput,
   channelAccountConnectInput,
   channelAccountRemoveInput,
+  voiceAccountConnectInput,
+  voiceAccountRegenerateInput,
   customerAddIdentityInput,
   customerCreateInput,
   customerMergeInput,
@@ -82,6 +84,7 @@ import {
   uploadDocument,
 } from "./representatives";
 import { type CustomerChannel, noCustomerChannel } from "./customer-proof";
+import { connectVoiceAccount, regenerateVoiceSecret } from "./voice-account";
 import { dropHeldMessage, ownerInbox, sendHeldMessage } from "./held-messages";
 import {
   approveReplyDraft,
@@ -125,6 +128,7 @@ export function representativeApi(
   convertDocument?: ConvertDocument,
   knowledgeFiles?: KnowledgeFiles,
   customerChannel: CustomerChannel = noCustomerChannel,
+  linkUrl?: string,
 ) {
   const context = { ...base, channel: customerChannel };
   return {
@@ -220,7 +224,7 @@ export function representativeApi(
       rotateEmailAddress(context, userId, parseInput(idInput, rest).id),
 
     channelAccountList: async ({ userId, ...rest }: WithUser<typeof idInput>) =>
-      channelAccountsView(context, userId, parseInput(idInput, rest).id),
+      channelAccountsView(context, userId, parseInput(idInput, rest).id, linkUrl),
 
     channelAccountConnect: async ({
       userId,
@@ -232,6 +236,31 @@ export function representativeApi(
         representativeId: id,
         platform,
         credentials,
+        linkUrl,
+      });
+    },
+
+    voiceAccountConnect: async ({ userId, ...rest }: WithUser<typeof voiceAccountConnectInput>) => {
+      const { id, number, greeting } = parseInput(voiceAccountConnectInput, rest);
+      return connectVoiceAccount(context, {
+        userId,
+        representativeId: id,
+        number,
+        greeting,
+        linkUrl,
+      });
+    },
+
+    voiceAccountRegenerate: async ({
+      userId,
+      ...rest
+    }: WithUser<typeof voiceAccountRegenerateInput>) => {
+      const { id, channelAccountId } = parseInput(voiceAccountRegenerateInput, rest);
+      return regenerateVoiceSecret(context, {
+        userId,
+        representativeId: id,
+        channelAccountId,
+        linkUrl,
       });
     },
 
@@ -240,7 +269,7 @@ export function representativeApi(
       ...rest
     }: WithUser<typeof channelAccountRemoveInput>) => {
       const { id, channelAccountId } = parseInput(channelAccountRemoveInput, rest);
-      return removeChannelAccount(context, userId, id, channelAccountId);
+      return removeChannelAccount(context, userId, id, channelAccountId, linkUrl);
     },
 
     setBot: async ({ userId, ...rest }: WithUser<typeof setBotInput>) => {

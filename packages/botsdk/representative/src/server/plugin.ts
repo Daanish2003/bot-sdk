@@ -190,6 +190,7 @@ export function representativeFeature(
         options.convertDocument,
         options.knowledgeFiles,
         channelOf(context),
+        options.linkUrl,
       ),
     tools: (turn, context) => [
       ...botDraftTools(turn, context),

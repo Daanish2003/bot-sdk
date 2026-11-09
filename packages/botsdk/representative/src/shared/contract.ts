@@ -886,12 +886,33 @@ export type HeldChannelAccountView = {
   reason: string | null;
   /** Where to point the platform's webhook, for a platform that posts to one (SMS); else null. */
   webhookUrl: string | null;
+  /** A `voice` account's setup: what the owner sets and where the Voice agent's hooks are (ticket #1381). */
+  voice: VoiceAccountView | null;
   createdAt: Date;
 };
 
+/** The greeting a voice account has until the owner sets one. A fixed line about being automated follows it on a Call. */
+export const defaultVoiceGreeting = "Hello, thanks for calling. How can I help?";
+export const maxVoiceGreetingLength = 300;
+
+/** A voice account's setup, as its owner sees it: never its secret, which is shown once when made. */
+export type VoiceAccountView = {
+  greeting: string;
+  /** Where the Voice agent's hooks are (`<hookUrl>/start`, `/request`, `/end`); null while the Host has no `linkUrl`. */
+  hookUrl: string | null;
+  /** Whether an SMS account on this Representative has the same number, so follow-up texts come from it. */
+  smsPaired: boolean;
+};
+
+/** A voice account's new secret, in the one view that shows it. */
+export type VoiceAccountSecret = { secret: string; view: ChannelAccountsView };
+
 /** What a Representative's owner sees of its Channel accounts: the platforms to connect on, and what it holds. */
 export type ChannelAccountsView = {
+  /** The platforms a form connects, each with its credentials. Not `voice`, which has its own (`voiceOffered`). */
   platforms: ChannelAccountPlatformView[];
+  /** Whether the Host offers phone calls: it registered the `voice` adapter. */
+  voiceOffered: boolean;
   accounts: HeldChannelAccountView[];
 };
 
@@ -932,6 +953,13 @@ export const channelAccountConnectInput = z.object({
   platform: platformSchema,
   credentials: z.record(z.string().max(100), z.string().trim().min(1).max(4096)),
 });
+/** A voice account takes a number and a greeting only: no provider, and no LiveKit or Telnyx key. */
+export const voiceAccountConnectInput = z.object({
+  id: z.uuid(),
+  number: z.string().trim().min(1).max(40),
+  greeting: z.string().trim().max(maxVoiceGreetingLength).optional(),
+});
+export const voiceAccountRegenerateInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 export const channelAccountRemoveInput = z.object({ id: z.uuid(), channelAccountId: z.uuid() });
 
 export const representativeContract = {
@@ -1008,6 +1036,13 @@ export const representativeContract = {
    * may hold several.
    */
   channelAccountConnect: oc.input(channelAccountConnectInput).output(type<ChannelAccountsView>()),
+  /**
+   * Connects a voice account (ticket #1381): the number Customers call and a greeting, with a secret
+   * made here and returned once. The same number again replaces the account and its secret.
+   */
+  voiceAccountConnect: oc.input(voiceAccountConnectInput).output(type<VoiceAccountSecret>()),
+  /** Gives a voice account a new secret, returned once; the old one stops at once. */
+  voiceAccountRegenerate: oc.input(voiceAccountRegenerateInput).output(type<VoiceAccountSecret>()),
   /** Removes one of the Representative's Channel accounts, and its listener stops. */
   channelAccountRemove: oc.input(channelAccountRemoveInput).output(type<ChannelAccountsView>()),
   /** The owner's Customers, oldest first. */

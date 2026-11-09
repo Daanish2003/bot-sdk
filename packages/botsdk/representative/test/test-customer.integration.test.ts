@@ -779,7 +779,7 @@ describe("who can reach a Turn", () => {
   it("has no way in from the package or the owner's API, and one route, a web chat visitor's", () => {
     const made = representative();
 
-    expect(Object.keys(packageRoot)).toEqual(["representative"]);
+    expect(Object.keys(packageRoot).sort()).toEqual(["representative", "voice"]);
     expect(Object.keys(packageManifest(packageRootOf(import.meta.url)).exports).sort()).toEqual([
       ".",
       "./client",
@@ -858,6 +858,8 @@ describe("who can reach a Turn", () => {
       "topicRemove",
       "topicSetMode",
       "updateDraft",
+      "voiceAccountConnect",
+      "voiceAccountRegenerate",
       "widgetKeyCreate",
       "widgetKeyDisable",
       "widgetKeyGet",

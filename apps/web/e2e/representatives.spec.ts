@@ -238,6 +238,68 @@ test("an owner sees a Representative's Channel accounts and gets a refusal for c
   await expect(section.getByLabel("Token")).toHaveCount(0);
 });
 
+test("an owner connects phone calls, sees the secret once, regenerates it, and a bad number is refused", async ({
+  page,
+}) => {
+  await signInAsSeededUser(page);
+  await page.goto("/representatives");
+  await page.getByLabel("Name").fill("Phone desk");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page).toHaveURL(/\/representatives\/[\w-]+$/);
+
+  const section = page.locator("[data-representative-voice]");
+  const tick = section.getByRole("checkbox", { name: "Take calls on this number" });
+  await tick.check();
+  // Only a number and a greeting: no provider, and no LiveKit or Telnyx key.
+  await expect(section.getByRole("textbox")).toHaveCount(2);
+
+  // A badly formed number is refused, and nothing is connected.
+  await section.getByLabel("Phone number (E.164)").fill("call me");
+  await section.getByRole("button", { name: "Connect calls" }).click();
+  await expect(page.locator('[data-sonner-toast][data-type="error"]').first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(section.locator("[data-voice-account]")).toHaveCount(0);
+
+  const number = `+1555${String(Date.now()).slice(-7)}`;
+  await section.getByLabel("Phone number (E.164)").fill(number);
+  await section.getByLabel("Greeting").fill("Thanks for calling Phone desk.");
+  await section.getByRole("button", { name: "Connect calls" }).click();
+
+  const account = section.locator("[data-voice-account]");
+  await expect(account.getByText(`Calls to ${number}`)).toBeVisible();
+  await expect(account.getByText("Greeting: Thanks for calling Phone desk.")).toBeVisible();
+  await expect(account.getByText(/No SMS account has this number/)).toBeVisible();
+  // The hook URL is under this app's API, and the checklist is there to open.
+  await expect(account.getByLabel("Hook URL")).toHaveValue(
+    /\/api\/chat\/representative\/voice\/[\w-]+$/,
+  );
+  await account.getByText("Setup checklist").click();
+  await expect(account.getByText(/SIP inbound trunk/)).toBeVisible();
+
+  // The secret shows now, once.
+  const secret = account.getByLabel("Secret");
+  const first = await secret.inputValue();
+  expect(first.length).toBeGreaterThanOrEqual(32);
+  await page.reload();
+  await expect(section.locator("[data-voice-account]").getByLabel("Hook URL")).toBeVisible();
+  await expect(section.getByLabel("Secret")).toHaveCount(0);
+
+  // Regenerating asks first, and the new secret replaces the old one.
+  await account.getByRole("button", { name: "Regenerate secret" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(section.getByLabel("Secret")).toHaveCount(0);
+  await account.getByRole("button", { name: "Regenerate secret" }).click();
+  await dialog.getByRole("button", { name: "Regenerate secret" }).click();
+  await expect(section.getByLabel("Secret")).toBeVisible();
+  expect(await section.getByLabel("Secret").inputValue()).not.toBe(first);
+
+  // Turning calls off removes the account.
+  await account.getByRole("button", { name: "Turn calls off" }).click();
+  await expect(section.locator("[data-voice-account]")).toHaveCount(0);
+});
+
 test("an owner can't open another owner's Representative", async ({ page, browser }) => {
   await signInAsSeededUser(page);
   await page.goto("/representatives");
