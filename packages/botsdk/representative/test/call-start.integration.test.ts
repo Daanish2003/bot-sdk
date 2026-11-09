@@ -617,3 +617,25 @@ describe("record_request (ticket #1383)", () => {
     expect((await w.calls())[0]!.requests).toEqual([]);
   });
 });
+
+describe("record_request bounds (ticket #1383)", () => {
+  it("takes no request once the Call has ended, nor past the cap", async () => {
+    const w = await world();
+    await w.start("call-1");
+    const send = (request: string) =>
+      fetch(`${w.url}/representative/voice/${w.accountId}/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${w.secret}` },
+        body: JSON.stringify({ callId: "call-1", request, emergency: false }),
+      });
+    for (let i = 0; i < 22; i++) await send(`r${i}`);
+    expect((await w.calls())[0]!.requests).toHaveLength(20);
+
+    await getTestDb()
+      .update(representativeCall)
+      .set({ status: "ended", requests: [] })
+      .where(eq(representativeCall.callId, "call-1"));
+    await send("late");
+    expect((await w.calls())[0]!.requests).toEqual([]);
+  });
+});

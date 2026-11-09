@@ -13,9 +13,11 @@ import { callIdField, voiceHookRoute, type VoiceHookAccount } from "./voice-hook
  * flag Pages the owner, as a Page only: nothing is sent to the caller or stored on the thread.
  */
 
+const maxRequests = 20;
+
 const callRequestBody = z.object({
   callId: callIdField,
-  request: z.string().min(1).max(2000).refine(noNul),
+  request: z.string().trim().min(1).max(2000).refine(noNul),
   callback: z.string().max(500).refine(noNul).optional(),
   emergency: z.boolean(),
 });
@@ -38,6 +40,9 @@ async function recordRequest(
         and(
           eq(representativeCall.channelAccountId, account.id),
           eq(representativeCall.callId, callId),
+          // Only a Call still going takes a request, and no more than a Call plausibly makes.
+          eq(representativeCall.status, "in_progress"),
+          sql`jsonb_array_length(${representativeCall.requests}) < ${maxRequests}`,
         ),
       )
       .returning({ threadId: representativeCall.threadId });
