@@ -8,6 +8,8 @@ import { nameIn, profilesOf } from "./customer-profile";
 import { queueDraftDue } from "./draft-due";
 import type { Heard } from "./customers";
 import {
+  customerAuthors,
+  waitingAuthors,
   draftRule,
   type HeldResolution,
   representative,
@@ -143,7 +145,7 @@ export async function waitingElsewhere(
     .where(
       and(
         eq(message.threadId, threadId),
-        inArray(message.author, ["customer", "bot"]),
+        inArray(message.author, waitingAuthors),
         gte(message.position, from),
         not(and(eq(message.channel, address.channel), eq(message.externalId, address.externalId))!),
       ),
@@ -166,7 +168,7 @@ async function overtaken(tx: Transaction, threadId: string, upTo: number, to: Se
     .where(
       and(
         eq(message.threadId, threadId),
-        eq(message.author, "customer"),
+        inArray(message.author, customerAuthors),
         gt(message.position, upTo),
         or(
           to.verified ? eq(message.verified, true) : undefined,
@@ -186,7 +188,7 @@ async function notedSinceCustomer(tx: Transaction, threadId: string, to: Heard) 
     .where(
       and(
         eq(message.threadId, threadId),
-        eq(message.author, "customer"),
+        inArray(message.author, customerAuthors),
         eq(message.channel, to.channel),
         eq(message.externalId, to.externalId),
       ),

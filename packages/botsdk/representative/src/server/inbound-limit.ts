@@ -1,8 +1,13 @@
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
-import { representative, representativeThread, representativeThreadMessage } from "./db/schema";
+import {
+  customerAuthors,
+  representative,
+  representativeThread,
+  representativeThreadMessage,
+} from "./db/schema";
 
 /*
  * Inbound is limited per identity (ticket #1311): at most `inboundLimit` messages in any hour, so a
@@ -34,7 +39,7 @@ export async function overInboundLimit(
     .where(
       and(
         eq(representative.userId, userId),
-        eq(message.author, "customer"),
+        inArray(message.author, customerAuthors),
         eq(message.channel, heard.channel),
         eq(message.externalId, heard.externalId),
         gt(message.createdAt, new Date(now.getTime() - windowMs)),

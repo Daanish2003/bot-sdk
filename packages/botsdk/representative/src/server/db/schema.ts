@@ -531,6 +531,12 @@ export const representativeTurn = botsdkSchema.table(
  */
 export type ThreadAuthor = "customer" | "representative" | "owner" | "note" | "bot" | "call";
 
+/** Who counts as the Customer having spoken: a Call is their word to every counter (ticket #1385). */
+export const customerAuthors = ["customer", "call"] as const;
+
+/** The authors whose message a Turn is owed for. */
+export const waitingAuthors = ["customer", "bot", "call"] as const;
+
 /**
  * What the pass wrote when a Customer thread closed (ticket #1279): one row per thread, its summary
  * or why there is none. It finds its Customer through its thread, so it follows a merge.

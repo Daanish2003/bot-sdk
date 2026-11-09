@@ -32,7 +32,7 @@ import { voice } from "../src/server/voice-adapter";
 /*
  * Call end (ticket #1384, ADR 0036): the transcript a Voice agent posts when a Call ends, over real
  * HTTP on real Postgres, in the shape `apps/livekit-test` sends. It joins the thread as one entry, and
- * starts no Turn here: the Turn that reviews it is #1385's.
+ * wakes the Turn that reviews it, which `post-call-turn.integration.test.ts` tests (#1385).
  */
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -419,23 +419,19 @@ describe("what a transcript can't do", () => {
       .not.toBeNull();
   });
 
-  it("queues no Turn, however many lines it has", async () => {
-    const { callStarts, callEnds, jobCount, threadId, fake } = await world();
+  it("queues one Turn, however many lines it has", async () => {
+    const { callStarts, callEnds, jobCount, threadId } = await world();
     await callStarts();
     const before = await jobCount();
 
     await callEnds(said);
 
-    expect(await jobCount()).toBe(before);
+    expect(await jobCount()).toBe(before + 1);
     const [thread] = await getTestDb()
-      .select({
-        turnId: representativeThread.turnId,
-        waitingFrom: representativeThread.waitingFrom,
-      })
+      .select({ waitingFrom: representativeThread.waitingFrom })
       .from(representativeThread)
       .where(eq(representativeThread.id, await threadId()));
-    expect(thread).toEqual({ turnId: null, waitingFrom: null });
-    expect(fake.calls).toHaveLength(0);
+    expect(thread).toEqual({ waitingFrom: 1 });
   });
 });
 
@@ -490,7 +486,7 @@ describe("what the owner sees", () => {
     ]);
   });
 
-  it("shows a Call as nobody's to answer once it ends, and leaves other messages' `call` null", async () => {
+  it("shows a Call as the Representative's to answer once it ends, and leaves other messages' `call` null", async () => {
     const { rpc, id, callStarts, callEnds, text, threadId, settle } = await world([quiet]);
     await text("Hello");
     await settle();
@@ -503,8 +499,7 @@ describe("what the owner sees", () => {
     expect(thread.messages.filter((message) => message.call).map(({ author }) => author)).toEqual([
       "call",
     ]);
-    // Spoken last, as a message of the Customer's is. The Turn that reviews it is #1385's.
-    expect((await rpc.representative.threadList({ id }))[0]!.waitingOn).toBeNull();
+    expect((await rpc.representative.threadList({ id }))[0]!.waitingOn).toBe("representative");
   });
 
   it("shows no Last call until there is one, then when the last began", async () => {

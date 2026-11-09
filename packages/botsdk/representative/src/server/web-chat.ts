@@ -65,6 +65,7 @@ export const withWebChat = (channel: CustomerChannel): CustomerChannel => ({
   },
   reach: (name) =>
     name === webChatChannel ? { canStartConversation: false } : channel.reach?.(name),
+  hasAccount: channel.hasAccount,
 });
 
 export const answer = (body: unknown, status = 200) =>

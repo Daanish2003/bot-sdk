@@ -17,6 +17,7 @@ import {
 import { combinedProfilesOf } from "./customer-profile";
 import { holdThreadCustomer } from "./customers";
 import {
+  customerAuthors,
   draftRule,
   type GateOutcome,
   type OutboundKind,
@@ -50,7 +51,7 @@ export const channelLimits = () =>
   );
 
 /** What every sender of a message to a Customer is given: the Channel it goes by, which the gate asks for limits. */
-export type ViaChannel = { channel: Pick<CustomerChannel, "reach"> };
+export type ViaChannel = { channel: Pick<CustomerChannel, "reach" | "hasAccount"> };
 
 /** The fixed order. A rule with no check yet (`liveChecks`) passes everything until its ticket adds one. */
 export const gateOrder = [
@@ -143,6 +144,8 @@ type GateFacts = {
   reach: MessagingReach;
   /** Hours since the Customer last wrote from the address it goes to; null when they never have. */
   hoursSinceHeard: number | null;
+  /** A follow-up by text to a Call, from a Representative holding no account to send it by. */
+  noAccount: boolean;
   /** Whether a message of this kind waits for the owner when the Channel's limits stop it; otherwise it is dropped. */
   holdsWhenLimited: boolean;
   /** How long the message is. */
@@ -168,15 +171,17 @@ export const liveChecks: Partial<Record<GateRule, GateCheck>> = {
     sentInARow >= maxInARow || sentToday >= maxPerDay ? "hold" : null,
   quietHours: ({ businessStarted, quiet }) => (businessStarted && quiet ? "hold" : null),
   // Held, never sent by another way: the address is the one the Customer wrote from, and the owner decides.
-  channel: ({ reach, businessStarted, hoursSinceHeard, length, holdsWhenLimited }) =>
-    (reach.canStartConversation === false && businessStarted) ||
-    (reach.replyWindowHours !== undefined &&
-      (hoursSinceHeard === null || hoursSinceHeard > reach.replyWindowHours)) ||
-    (reach.maxLength !== undefined && !reach.cutsLongMessages && length > reach.maxLength)
-      ? holdsWhenLimited
-        ? "hold"
-        : "drop"
-      : null,
+  channel: ({ noAccount, reach, businessStarted, hoursSinceHeard, length, holdsWhenLimited }) =>
+    noAccount
+      ? "drop"
+      : (reach.canStartConversation === false && businessStarted) ||
+          (reach.replyWindowHours !== undefined &&
+            (hoursSinceHeard === null || hoursSinceHeard > reach.replyWindowHours)) ||
+          (reach.maxLength !== undefined && !reach.cutsLongMessages && length > reach.maxLength)
+        ? holdsWhenLimited
+          ? "hold"
+          : "drop"
+        : null,
 };
 
 /** The rule whose hold lets itself go: the message is sent when the quiet period ends. */
@@ -205,11 +210,13 @@ export type Outgoing = {
   jobs?: JobsService;
   /** The message starts with the business, such as a relayed Bot result: quiet hours hold it. */
   businessStarted?: boolean;
+  /** It follows up a finished Call, which needs an account to text from: with none, it is dropped. */
+  followsCall?: boolean;
   /**
    * The Channel it goes by, which the gate asks for its platform's limits (ticket #1305). Required, so a
    * sender can't forget it: a path with no Channel can't pass the gate.
    */
-  channel: Pick<CustomerChannel, "reach">;
+  channel: Pick<CustomerChannel, "reach" | "hasAccount">;
   /**
    * The id of the held message this is the automatic release of: it also passes `on`, `caps` and the topic, and
    * holding it again writes no second held row. A Page for it counts the other held messages only.
@@ -347,7 +354,7 @@ async function sentCounts(tx: Transaction, threadId: string, customerId: string,
   const [lastHeard] = await tx
     .select({ position: max(message.position) })
     .from(message)
-    .where(and(eq(message.threadId, threadId), eq(message.author, "customer")));
+    .where(and(eq(message.threadId, threadId), inArray(message.author, customerAuthors)));
   const [inARow] = await tx
     .select({ count: count() })
     .from(message)
@@ -389,7 +396,7 @@ async function hoursSinceHeard(
     .where(
       and(
         eq(message.threadId, threadId),
-        eq(message.author, "customer"),
+        inArray(message.author, customerAuthors),
         eq(message.channel, from.channel),
         eq(message.externalId, from.externalId),
       ),
@@ -510,6 +517,10 @@ export async function passGate(
     businessStarted,
     reach,
     holdsWhenLimited: heldWhenLimited.has(kind),
+    noAccount:
+      rules.includes("channel") &&
+      outgoing.followsCall === true &&
+      (await outgoing.channel.hasAccount?.(tx, to.channel, row.representativeId)) === false,
     length: content?.text.length ?? 0,
     hoursSinceHeard:
       rules.includes("channel") && reach.replyWindowHours !== undefined

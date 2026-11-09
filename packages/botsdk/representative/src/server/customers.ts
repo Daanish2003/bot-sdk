@@ -4,6 +4,7 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import type { Transaction } from "@botsdk/bot/plugin";
 import {
+  type RecordedRequest,
   draftRule,
   representative,
   representativeCall,
@@ -392,6 +393,16 @@ export async function readSender(
   return { ...sender, proofRule: heard?.proofRule ?? null };
 }
 
+/** A Call's transcript with what the caller asked for on it, as the Voice agent recorded it. */
+function withRecordedRequests(text: string, requests: RecordedRequest[] | null) {
+  if (!requests?.length) return text;
+  const lines = requests.map(
+    ({ request, callback, emergency }) =>
+      `- ${request}${callback ? ` (callback: ${callback})` : ""}${emergency ? " [emergency]" : ""}`,
+  );
+  return `${text}\n\nRequests the caller made, as the voice agent recorded them:\n${lines.join("\n")}`;
+}
+
 /**
  * What a Turn reads of its thread: oldest first, up to and including `upTo`, so a replay reads what
  * the first attempt read, and within both limits. Empty once the thread has gone. For an unverified
@@ -414,8 +425,10 @@ export async function readThread(
       verified: representativeThreadMessage.verified,
       heldForOwner: representativeThreadMessage.heldForOwner,
       assignmentId: representativeThreadMessage.assignmentId,
+      requests: representativeCall.requests,
     })
     .from(representativeThreadMessage)
+    .leftJoin(representativeCall, eq(representativeCall.messageId, representativeThreadMessage.id))
     .where(
       and(
         eq(representativeThreadMessage.threadId, threadId),
@@ -441,14 +454,15 @@ export async function readThread(
   // A message that waited through the last Turn comes after that Turn's reply, though sent before
   // it: a Turn's prompt ends on what it has to answer.
   const unanswered = (entry: (typeof newest)[number]) =>
-    (entry.author === "customer" || entry.author === "bot") && entry.position >= batchFrom;
+    (entry.author === "customer" || entry.author === "bot" || entry.author === "call") &&
+    entry.position >= batchFrom;
   kept.reverse();
   return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)].map(
-    ({ author, text, verified, position, heldForOwner, assignmentId }) => {
+    ({ author, text, verified, position, heldForOwner, assignmentId, requests }) => {
       const earlier = position < batchFrom || heldForOwner;
       return {
         author,
-        text,
+        text: withRecordedRequests(text, requests),
         verified,
         earlier,
         ...(assignmentId && !earlier && { assignmentId }),
@@ -501,6 +515,7 @@ export async function storeReply(
     releaseId,
     refusals,
     businessStarted,
+    followsCall,
   }: {
     threadId: string;
     upTo: number;
@@ -510,6 +525,8 @@ export async function storeReply(
     refusals?: GateRefusal[];
     /** The Turn answers no new Customer message: quiet hours hold what it says. */
     businessStarted?: boolean;
+    /** The Turn only follows up a Call: without a text account, what it says goes nowhere. */
+    followsCall?: boolean;
   },
   { text, sources, topic }: { text: string; sources: ReplySource[]; topic?: string },
   replyKind: StoredReplyKind,
@@ -530,6 +547,7 @@ export async function storeReply(
     pages: services.pages,
     jobs: services.jobs,
     businessStarted,
+    followsCall,
     channel: services.channel,
     content: { text, verified, replyKind, sources, topic },
   });

@@ -223,7 +223,7 @@ export async function removeChannelAccount(
 
 /** The Representative's active account on `channel`: `preferred` while it's there, or the oldest. */
 async function accountFor(
-  db: Context["db"],
+  db: Context["db"] | Transaction,
   representativeId: string,
   channel: string,
   preferred: string | null,
@@ -253,6 +253,8 @@ export const heldAccountChannel = (
   { linkUrl }: { linkUrl?: string } = {},
 ): ReturnType<ChannelOf> => ({
   reach: (channel) => channelAccounts.reach(channel),
+  hasAccount: async (tx, channel, representativeId) =>
+    (await accountFor(tx, representativeId, channel, null)) !== undefined,
   send: async (
     { channel, externalId },
     { text },

@@ -21,6 +21,7 @@ import {
   threadPromptLimit,
 } from "./customers";
 import {
+  waitingAuthors,
   representative,
   representativeCustomer,
   representativeThread,
@@ -223,7 +224,7 @@ export async function leaveOldMessages(
     .where(
       and(
         eq(message.threadId, threadId),
-        inArray(message.author, ["customer", "bot"]),
+        inArray(message.author, waitingAuthors),
         gte(message.position, waitingFrom),
         gte(message.createdAt, new Date(now.getTime() - limitAnswerMs)),
       ),
@@ -256,9 +257,9 @@ function closeBatch(
   let chars = 0;
   return rows.find((row, index) => {
     chars += row.size;
-    // A Bot's result is answered to the sender it was handed off for, so it is a sender's too.
+    // A Bot's result is answered to the sender it was handed off for, and a Call to its caller, so they are a sender's too.
     const otherSender =
-      (row.author === "customer" || row.author === "bot") &&
+      (waitingAuthors as readonly string[]).includes(row.author) &&
       (row.channel !== first.channel ||
         row.externalId !== first.externalId ||
         row.verified !== first.verified);
@@ -330,7 +331,7 @@ export async function beginTurn(tx: Transaction, threadId: string, turnId: strin
         .where(
           and(
             eq(message.threadId, threadId),
-            inArray(message.author, ["customer", "bot"]),
+            inArray(message.author, waitingAuthors),
             gt(message.position, upTo),
           ),
         )

@@ -1,9 +1,10 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { rpcError } from "@botsdk/bot/rpc-error";
 import {
+  customerAuthors,
   representative,
   representativeCustomer,
   representativeCustomerMerge,
@@ -149,7 +150,7 @@ async function sendToCustomer(
     .where(
       and(
         eq(message.threadId, threadId),
-        eq(message.author, "customer"),
+        inArray(message.author, customerAuthors),
         eq(message.channel, channel),
         eq(message.externalId, externalId),
       ),

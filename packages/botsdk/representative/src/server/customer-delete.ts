@@ -23,6 +23,7 @@ import { holdIdentities, smsChannel } from "./customer-proof";
 import { customerSummaryKey } from "./customer-summary";
 import type { Heard } from "./customers";
 import {
+  waitingAuthors,
   representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
@@ -111,7 +112,7 @@ async function settleThreadWait(
           .where(
             and(
               eq(message.threadId, id),
-              inArray(message.author, ["customer", "bot"]),
+              inArray(message.author, waitingAuthors),
               gte(message.position, waitingFrom),
             ),
           );
@@ -144,7 +145,7 @@ async function settleThreadWait(
     .where(
       and(
         eq(message.threadId, id),
-        inArray(message.author, ["customer", "bot"]),
+        inArray(message.author, waitingAuthors),
         gt(message.position, answered?.position ?? 0),
       ),
     )
