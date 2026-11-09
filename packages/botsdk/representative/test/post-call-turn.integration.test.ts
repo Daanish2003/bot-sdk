@@ -12,7 +12,7 @@ import { encryptCredentials } from "@botsdk/bot/credentials/encryption";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { createHttpHandlerOver } from "@botsdk/bot/over";
 import { inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
-import { botAssignment, channelAccount, job } from "@botsdk/bot/storage";
+import { botAssignment, channelAccount, job, page } from "@botsdk/bot/storage";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
@@ -845,5 +845,83 @@ describe("for the counters a Call is the Customer's word", () => {
     expect((await entries()).find((entry) => entry.author === "note")).toMatchObject({
       verified: false,
     });
+  });
+});
+
+describe("flagging a Call", () => {
+  const flags = (what: string, id = "flag") => toolCall({ name: "flag_call", input: { what }, id });
+  const pages = () => getTestDb().select().from(page);
+  const offered = (call: { tools?: { name: string }[] }) => call.tools?.map((tool) => tool.name);
+
+  it("Pages the owner with what went wrong, and sends the Customer nothing", async () => {
+    const { calls, settle, texts, threadId, id, user } = await world([
+      round(flags("The agent promised a $50 price no fact supports.")),
+      quiet,
+    ]);
+
+    await calls();
+    await settle();
+
+    expect(await pages()).toMatchObject([
+      {
+        userId: user.id,
+        urgency: "routine",
+        text: expect.stringContaining("The agent promised a $50 price no fact supports."),
+        path: `/representatives/${id}`,
+      },
+    ]);
+    expect((await pages())[0]!.text).toContain(await threadId());
+    expect(texts).toEqual([]);
+  });
+
+  it("Pages nobody for a clean Call", async () => {
+    const { calls, settle } = await world([quiet]);
+
+    await calls();
+    await settle();
+
+    expect(await pages()).toEqual([]);
+  });
+
+  it("Pages at most once for one Call, however often it flags", async () => {
+    const { calls, settle } = await world([
+      round(flags("First thing.", "one"), flags("Second thing.", "two")),
+      round(flags("Third thing.", "three")),
+      quiet,
+    ]);
+
+    await calls();
+    await settle();
+
+    expect(await pages()).toHaveLength(1);
+  });
+
+  it("Pages once for each Call", async () => {
+    const { calls, settle } = await world([
+      round(flags("Bad first Call.")),
+      quiet,
+      round(flags("Bad second Call.")),
+      quiet,
+    ]);
+    await calls("call-1");
+    await settle();
+
+    await calls("call-2");
+    await settle();
+
+    expect(await pages()).toHaveLength(2);
+  });
+
+  it("is offered on the Turn a Call wakes and not on an ordinary text Turn", async () => {
+    const { calls, text, settle, fake } = await world([quiet, quiet]);
+
+    await text("Hello");
+    await settle();
+    await calls();
+    await settle();
+
+    expect(fake.calls).toHaveLength(2);
+    expect(offered(fake.calls[0] as never)).not.toContain("flag_call");
+    expect(offered(fake.calls[1] as never)).toContain("flag_call");
   });
 });

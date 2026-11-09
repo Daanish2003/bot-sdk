@@ -49,6 +49,7 @@ import {
   storeReply,
   type ThreadEntry,
 } from "./customers";
+import { flagCall } from "./call-flag";
 import { sendEmergencyScript } from "./emergency-script";
 import { optOut } from "./opt-out";
 import {
@@ -732,6 +733,13 @@ const optOutTool = "flag_opt_out";
 const emergencyTool = "flag_emergency";
 const alwaysOnTools = [optOutTool, emergencyTool] as const;
 
+/** Only a Turn that reviews a finished Call has it, and no Release lists it. */
+const flagCallTool = "flag_call";
+
+/** The Call this Turn reviews: the newest in its batch. */
+const reviewedCall = (entries: ThreadEntry[]) =>
+  entries.findLast((entry) => entry.author === "call" && !entry.earlier && entry.callId)?.callId;
+
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
 export function turnTools(turn: Turn) {
   const {
@@ -1066,7 +1074,32 @@ export function turnTools(turn: Turn) {
       progress.flaggedEmergency ||= says(answer, "flagged");
       return answer;
     }),
-  } satisfies Record<RepresentativeTool | (typeof alwaysOnTools)[number], AnyServerTool>;
+    [flagCallTool]: toolDefinition({
+      name: flagCallTool,
+      description:
+        "Flag the phone call you are reviewing to the owner, when the voice agent said anything outside the topics the owner lets go out by themselves, or made a claim the published facts don't support. Say what went wrong in a sentence or two. The owner is alerted, once per call. Nothing goes to the Customer.",
+      inputSchema: z.object({
+        what: z.string().trim().min(1).max(1_000).refine(noNul),
+      }),
+    }).server(async ({ what }, context) => {
+      const callId = reviewedCall(entries);
+      return kit.liveActivity(flagCallTool, context?.toolCallId, async (tx) => {
+        // A test conversation reaches no one, and has no Call.
+        if (thread !== null && callId) {
+          // The Customer's row before the thread's, the order a merge and a delete take them in.
+          await holdThreadCustomer(tx, thread.threadId);
+          await flagCall(job, tx, { threadId: thread.threadId, callId, what });
+        }
+        return {
+          flagged: true,
+          note: "The owner has been alerted. Send the Customer nothing because of it.",
+        };
+      });
+    }),
+  } satisfies Record<
+    RepresentativeTool | (typeof alwaysOnTools)[number] | typeof flagCallTool,
+    AnyServerTool
+  >;
 }
 
 /**
@@ -1270,20 +1303,25 @@ export async function playLoop(
         emergencyText: content.emergencyText,
       });
       // By name, so a name off the code-defined list gives nothing.
-      const listed = [...new Set<string>([...content.tools, ...alwaysOnTools])].flatMap(
-        (tool): AnyServerTool[] =>
-          Object.hasOwn(tools, tool)
-            ? [
-                {
-                  ...tools[tool]!,
-                  // A call the same Step made after the hand-off that ended the Turn.
-                  execute: async (args: unknown, context?: unknown) =>
-                    isOver(progress) && (tool !== emergencyTool || progress.flaggedEmergency)
-                      ? { error: turnOverRefusal }
-                      : tools[tool]!.execute!(args, context as never),
-                },
-              ]
-            : [],
+      const listed = [
+        ...new Set<string>([
+          ...content.tools.filter((tool) => tool !== flagCallTool),
+          ...alwaysOnTools,
+          ...(reviewedCall(entries) ? [flagCallTool] : []),
+        ]),
+      ].flatMap((tool): AnyServerTool[] =>
+        Object.hasOwn(tools, tool)
+          ? [
+              {
+                ...tools[tool]!,
+                // A call the same Step made after the hand-off that ended the Turn.
+                execute: async (args: unknown, context?: unknown) =>
+                  isOver(progress) && (tool !== emergencyTool || progress.flaggedEmergency)
+                    ? { error: turnOverRefusal }
+                    : tools[tool]!.execute!(args, context as never),
+              },
+            ]
+          : [],
       );
       const systemPrompts = systemPromptsOf(content, documents);
       if (!test) return { systemPrompts, ended: () => isOver(progress), tools: listed };

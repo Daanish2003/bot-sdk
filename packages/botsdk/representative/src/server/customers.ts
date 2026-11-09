@@ -57,6 +57,8 @@ export type ThreadEntry = {
   earlier?: boolean;
   /** The Assignment behind a Bot's result that is this Turn's to tell. */
   assignmentId?: string;
+  /** The Call a `call` entry is the transcript of. */
+  callId?: string;
 };
 
 /** An identity of `userId`'s with its Customer, made together on the identity's first message. */
@@ -426,6 +428,8 @@ export async function readThread(
       heldForOwner: representativeThreadMessage.heldForOwner,
       assignmentId: representativeThreadMessage.assignmentId,
       requests: representativeCall.requests,
+      callStatus: representativeCall.status,
+      callId: representativeCall.id,
     })
     .from(representativeThreadMessage)
     .leftJoin(
@@ -433,8 +437,6 @@ export async function readThread(
       and(
         eq(representativeCall.threadId, representativeThreadMessage.threadId),
         eq(representativeCall.messageId, representativeThreadMessage.id),
-        // A lost Call's entry already carries them.
-        eq(representativeCall.status, "ended"),
       ),
     )
     .where(
@@ -455,7 +457,10 @@ export async function readThread(
   const kept: typeof newest = [];
   let chars = 0;
   for (const entry of newest) {
-    chars += withRecordedRequests(entry.text, entry.requests).length;
+    chars += withRecordedRequests(
+      entry.text,
+      entry.callStatus === "ended" ? entry.requests : null,
+    ).length;
     if (chars > threadPromptChars) break;
     kept.push(entry);
   }
@@ -466,13 +471,25 @@ export async function readThread(
     entry.position >= batchFrom;
   kept.reverse();
   return [...kept.filter((entry) => !unanswered(entry)), ...kept.filter(unanswered)].map(
-    ({ author, text, verified, position, heldForOwner, assignmentId, requests }) => {
+    ({
+      author,
+      text,
+      verified,
+      position,
+      heldForOwner,
+      assignmentId,
+      requests,
+      callStatus,
+      callId,
+    }) => {
       const earlier = position < batchFrom || heldForOwner;
       return {
         author,
-        text: withRecordedRequests(text, requests),
+        // A lost Call's entry already carries them.
+        text: withRecordedRequests(text, callStatus === "ended" ? requests : null),
         verified,
         earlier,
+        ...(callId && { callId }),
         ...(assignmentId && !earlier && { assignmentId }),
       };
     },
