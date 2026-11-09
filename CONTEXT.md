@@ -271,7 +271,7 @@ One display on the Computer, with its own Chrome and Chrome profile, for one act
 _Avoid_: Display, desktop, browser
 
 **Auto-review**:
-A separate model's check of a Bot's risky tool call before it runs. Every shell command is risky, and so is every browser or desktop action that does more than look. A call it passes runs without asking; one it blocks waits for an Approval. It takes only the user's own Messages (what the user said on a call counts, read as a transcript that may be mis-heard), a Routine the user approved, or their Custom Rules as permission, so text from a webhook or a web page can't talk it into anything.
+A separate model's check of a Bot's risky tool call before it runs. Every shell command is risky, and so is every browser or desktop action that does more than look. A call it passes runs without asking; one it blocks waits for an Approval. It takes only the user's own Messages, a Routine the user approved, or their Custom Rules as permission, so text from a webhook or a web page can't talk it into anything.
 _Avoid_: Guardrail, moderation, safety check
 
 **Custom Rule**:
@@ -291,15 +291,19 @@ Anything that sends to a Bot or shows what it sends: the user's apps (web, deskt
 _Avoid_: App, surface, client, platform
 
 **Channel account**:
-The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several. A Bot's SMS Channel account can also take Calls on the same number.
+The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several. A Representative's voice account is a Channel account that holds a phone number for Calls and the secret its Voice agent presents; it pairs with an SMS account on the same number.
 _Avoid_: Connection (that is an MCP sign-in), integration, bot token
 
 **Call**:
-The user phoning one of their Bots on its SMS number. A voice model only talks: each request the caller makes becomes a Trigger that runs a normal Turn, and what the Bot sends with SendToUser is spoken back. While a Call is live, the Bot's Messages are spoken on it as well as kept in the Conversation; nothing is answered by voice that needs a Rich control, so Approvals and other controls go to the app. A Call ends when the caller hangs up or at 10 minutes.
+A Customer phoning a Representative's number. A Voice agent holds it and talks, following the current Release and published facts, so what is said on a Call never passes the outbound gate. The caller is always unverified, and is the same Customer as the SMS Customer with that number. When the Call ends, its transcript joins the Customer's thread as one entry and the Representative reviews it, flags what went wrong and follows up by text.
 _Avoid_: Voice session, phone chat
 
+**Voice agent**:
+The program at a voice vendor, outside the product, that holds a Call and runs the conversation with its own model. The user runs it; the product only tells it what to say at the start of each Call and hears what happened.
+_Avoid_: Agent, call bot, voice gateway
+
 **Linked identity**:
-The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered. A linked phone number, proved only by texting the code, also lets the user call their Bots; a call from any other number is declined before it is answered.
+The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered.
 _Avoid_: Account link, alias, handle
 
 **SendToUser**:
