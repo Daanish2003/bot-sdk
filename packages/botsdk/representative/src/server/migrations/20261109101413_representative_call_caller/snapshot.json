@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "b9e589fa-0114-49ff-9233-ee6ad214101e",
-  "prevIds": ["19e65927-b063-4829-b702-0c47c29fe226"],
+  "id": "d7253590-aec2-4d5a-be6e-04641e4be70b",
+  "prevIds": ["d5004b1d-702f-40b6-bf9d-a20322c53ce1"],
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -433,32 +433,6 @@
       "table": "representative_call"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "channel",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_call"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "external_id",
-      "entityType": "columns",
-      "schema": "botsdk",
-      "table": "representative_call"
-    },
-    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -485,6 +459,19 @@
       "table": "representative_call"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_id",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_call"
+    },
+    {
       "type": "timestamp",
       "typeSchema": null,
       "notNull": true,
@@ -506,6 +493,19 @@
       "generated": null,
       "identity": null,
       "name": "ended_at",
+      "entityType": "columns",
+      "schema": "botsdk",
+      "table": "representative_call"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "message_id",
       "entityType": "columns",
       "schema": "botsdk",
       "table": "representative_call"

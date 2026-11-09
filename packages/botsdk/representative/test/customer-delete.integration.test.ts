@@ -27,6 +27,7 @@ import { deleteCustomer } from "../src/server/customer-delete";
 import { codeHandOffKind, limitNoteKind, type StoredReplyKind } from "../src/shared/replies";
 import { afterThreadClose, customerSummaryMarker } from "../src/server/customer-summary";
 import {
+  representativeCall,
   representativeCustomer,
   representativeCustomerIdentity,
   representativeCustomerMerge,
@@ -39,7 +40,6 @@ import {
   representativeProfileValue,
   representativeThread,
   representativeChannelAccount,
-  representativeCall,
   representativeThreadMail,
   representativeThreadMessage,
   representativeVerification,
@@ -539,6 +539,24 @@ describe("deleting a Customer", () => {
       .set({ lastExternalId: bobNumber, channelAccountId: accountId })
       .where(eq(representativeThread.id, shared.id));
     const [theirHandOff] = await handOffsAt(bobNumber);
+    const callFrom = (externalId: string) => ({
+      id: uuidv7(),
+      callId: externalId,
+      threadId: shared.id,
+      externalId,
+      startedAt: new Date(),
+    });
+    // A Call is found by the SMS channel's number, whatever channel they first wrote on.
+    await getTestDb().insert(representativeCustomerIdentity).values({
+      id: uuidv7(),
+      userId: owner.user.id,
+      customerId: bob.id,
+      channel: "sms",
+      externalId: bobNumber,
+    });
+    await getTestDb()
+      .insert(representativeCall)
+      .values([callFrom(bobNumber), callFrom(adaNumber)]);
 
     const { assignmentIds } = await deleteCustomer(owner.context(), owner.user.id, bob.id);
 
@@ -552,6 +570,12 @@ describe("deleting a Customer", () => {
       .where(eq(representativeThreadMessage.threadId, shared.id));
     expect(left.map((row) => row.text)).toEqual(["Ada speaks."]);
     expect(left.map((row) => row.externalId)).toEqual([adaNumber]);
+    expect(
+      await getTestDb()
+        .select({ externalId: representativeCall.externalId })
+        .from(representativeCall)
+        .where(eq(representativeCall.threadId, shared.id)),
+    ).toEqual([{ externalId: adaNumber }]);
     const [thread] = await getTestDb()
       .select({
         lastExternalId: representativeThread.lastExternalId,
@@ -570,136 +594,6 @@ describe("deleting a Customer", () => {
         .where(eq(representativeCustomerSummary.threadId, shared.id)),
     ).toEqual([]);
     expect((await rpc.representative.customerList()).map((each) => each.id)).toEqual([ada.id]);
-  });
-
-  it("removes a Call they made on another Customer's thread, and leaves that Customer's own", async () => {
-    const { rpc, heard, customerAt, settle } = await instance({ turnRounds: [answers, answers] });
-    await heard("Ada speaks.", adaNumber);
-    await heard("Bob speaks.", bobNumber);
-    await settle();
-    const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
-    const [adaThread] = await threadsOfCustomers([ada.id]);
-    const bobPhone = "+15550077";
-    const adaPhone = "+15550011";
-    await rpc.representative.customerAddIdentity({
-      id: bob.id,
-      channel: "sms",
-      externalId: bobPhone,
-    });
-    const call = (callId: string, caller: string) => ({
-      id: uuidv7(),
-      callId,
-      threadId: adaThread!.id,
-      channel: "sms",
-      externalId: caller,
-      startedAt: new Date(),
-      requests: [{ request: `A request from ${caller}`, emergency: false }],
-    });
-    await getTestDb()
-      .insert(representativeCall)
-      .values([call("bobs-call", bobPhone), call("adas-call", adaPhone)]);
-
-    await rpc.representative.customerDelete({ id: bob.id });
-
-    const left = await getTestDb()
-      .select({ callId: representativeCall.callId })
-      .from(representativeCall)
-      .where(eq(representativeCall.threadId, adaThread!.id));
-    expect(left.map((row) => row.callId)).toEqual(["adas-call"]);
-  });
-
-  describe("a thread with no messages, opened by a Call", () => {
-    const bobPhone = "+15550077";
-    const adaPhone = "+15550011";
-
-    const callOnlyThread = async () => {
-      const { rpc, heard, customerAt, settle } = await instance({ turnRounds: [answers, answers] });
-      await heard("Ada speaks.", adaNumber);
-      await heard("Bob speaks.", bobNumber);
-      await settle();
-      const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
-      const [adaThread] = await threadsOfCustomers([ada.id]);
-      const added = await rpc.representative.customerAddIdentity({
-        id: bob.id,
-        channel: "sms",
-        externalId: bobPhone,
-      });
-      const threadId = uuidv7();
-      await getTestDb()
-        .insert(representativeThread)
-        .values({
-          ...adaThread!,
-          id: threadId,
-          state: "closed",
-          turnId: null,
-          turnFrom: null,
-          waitingFrom: null,
-          waitingSince: null,
-          lastChannel: "sms",
-          lastExternalId: bobPhone,
-        });
-      const call = (callId: string, externalId: string) => ({
-        id: uuidv7(),
-        callId,
-        threadId,
-        channel: "sms",
-        externalId,
-        startedAt: new Date(),
-      });
-      const thread = async () => {
-        const [row] = await getTestDb()
-          .select()
-          .from(representativeThread)
-          .where(eq(representativeThread.id, threadId));
-        return row;
-      };
-      const callIds = async () =>
-        (
-          await getTestDb()
-            .select({ callId: representativeCall.callId })
-            .from(representativeCall)
-            .where(eq(representativeCall.threadId, threadId))
-        ).map((row) => row.callId);
-      return { rpc, bob, added, call, thread, callIds };
-    };
-
-    it("goes with the only Call on it", async () => {
-      const { rpc, bob, call, thread } = await callOnlyThread();
-      await getTestDb().insert(representativeCall).values(call("bobs-call", bobPhone));
-
-      await rpc.representative.customerDelete({ id: bob.id });
-
-      expect(await thread()).toBeUndefined();
-    });
-
-    it("stays for someone else's Call, and answers them next", async () => {
-      const { rpc, bob, call, thread, callIds } = await callOnlyThread();
-      await getTestDb()
-        .insert(representativeCall)
-        .values([call("bobs-call", bobPhone), call("adas-call", adaPhone)]);
-
-      await rpc.representative.customerDelete({ id: bob.id });
-
-      expect(await callIds()).toEqual(["adas-call"]);
-      expect((await thread())!.lastExternalId).toBe(adaPhone);
-    });
-
-    it("finds a Call by the address its caller was corrected to", async () => {
-      const { rpc, bob, added, call, callIds } = await callOnlyThread();
-      await getTestDb()
-        .insert(representativeCall)
-        .values([call("bobs-call", bobPhone), call("adas-call", adaPhone)]);
-      await rpc.representative.customerUpdateIdentity({
-        id: bob.id,
-        identityId: added.identities.find((each) => each.externalId === bobPhone)!.id,
-        channel: "sms",
-        externalId: "+15550088",
-      });
-
-      await rpc.representative.customerDelete({ id: bob.id });
-
-      expect(await callIds()).toEqual(["adas-call"]);
-    });
   });
 
   it("strips what it removed from a merge that still stands, and the merge can still be undone", async () => {
@@ -1479,17 +1373,13 @@ describe("the completeness of a Customer's delete", () => {
         subject: "Opening hours",
         messageIds: ["first@mail.example"],
       });
-    await getTestDb()
-      .insert(representativeCall)
-      .values({
-        id: uuidv7(),
-        callId: "ada-call",
-        threadId: adaThread!.id,
-        channel: "sms",
-        externalId: "+15550011",
-        startedAt: new Date(),
-        requests: [{ request: "Fix the AC at 12 Elm Street.", emergency: false }],
-      });
+    await getTestDb().insert(representativeCall).values({
+      id: uuidv7(),
+      callId: "ada-call",
+      threadId: adaThread!.id,
+      externalId: adaNumber,
+      startedAt: new Date(),
+    });
     const { reached, customerTable, edges } = await rowsLinkedTo([ada.id, bob.id]);
     // Every table a chain of foreign keys ties to a Customer must be seeded above, so a new one
     // can't pass unchecked.
@@ -1528,6 +1418,7 @@ describe("the completeness of a Customer's delete", () => {
     // above), and a message's Assignment goes with the message. An address is matched to another
     // Customer's messages and hand-offs (tested above), and its other columns go with their row.
     const covered = [
+      // Its row goes with its thread, or by that number from another Customer's thread (tested above).
       "representative_call.external_id",
       "representative_customer_identity.external_id",
       "representative_customer_merge.hand_off_ids",

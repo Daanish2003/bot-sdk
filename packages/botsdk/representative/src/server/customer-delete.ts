@@ -19,7 +19,7 @@ import type { Transaction } from "@botsdk/bot/plugin";
 import { holdCustomers, isMergedAway } from "./customer-merge";
 import { memberIds, standingMergesOf } from "./customer-profile";
 import { fixedReplyKinds } from "../shared/replies";
-import { holdIdentities } from "./customer-proof";
+import { holdIdentities, smsChannel } from "./customer-proof";
 import { customerSummaryKey } from "./customer-summary";
 import type { Heard } from "./customers";
 import {
@@ -166,9 +166,9 @@ async function settleThreadWait(
  * moved back but the thread and identities that the merge moved. Later merges can have taken that
  * thread further, so it is found by their address, across the owner's other Customers. Those words, and
  * any summary made from them or pass about to make one, go; so does a hand-off from them, whose
- * Assignment is returned for redaction. Their Calls on those threads go too, with what they asked
- * for. The other Customer's own words and Calls stay, and a thread with none left goes. One that stays
- * stops waiting on them. Gate decisions at their address go too, what they held with them, as a proof can be addressed to them from any thread. Returns the threads it removed,
+ * Assignment is returned for redaction. The other Customer's own words stay, and a thread with none
+ * left goes. One that stays stops waiting on them. Gate decisions at their address go too, what they
+ * held with them, as a proof can be addressed to them from any thread. Returns the threads it removed,
  * and those Assignments.
  */
 async function removeFromOtherThreads(
@@ -181,9 +181,7 @@ async function removeFromOtherThreads(
   if (addresses.length === 0) return { threadIds: [], assignmentIds: [] };
   const thread = representativeThread;
   const message = representativeThreadMessage;
-  const call = representativeCall;
   const isTheirs = isAt(message.channel, message.externalId, addresses);
-  const callIsTheirs = isAt(call.channel, call.externalId, addresses);
   const others = tx
     .select({ id: representativeCustomer.id })
     .from(representativeCustomer)
@@ -197,14 +195,7 @@ async function removeFromOtherThreads(
     .selectDistinct({ id: thread.id })
     .from(thread)
     .innerJoin(message, eq(message.threadId, thread.id))
-    .where(and(inArray(thread.customerId, others), isTheirs))
-    .union(
-      tx
-        .selectDistinct({ id: thread.id })
-        .from(thread)
-        .innerJoin(call, eq(call.threadId, thread.id))
-        .where(and(inArray(thread.customerId, others), callIsTheirs)),
-    );
+    .where(and(inArray(thread.customerId, others), isTheirs));
   const threadIds: string[] = [];
   for (const { id } of touched) {
     const [each] = await tx
@@ -222,24 +213,16 @@ async function removeFromOtherThreads(
     if (!each) continue;
     const { lastChannel, lastExternalId } = each;
     await tx.delete(message).where(and(eq(message.threadId, id), isTheirs));
-    await tx.delete(call).where(and(eq(call.threadId, id), callIsTheirs));
     await context.jobs.cancelIn(tx, customerSummaryKey(id));
     await tx
       .delete(representativeCustomerSummary)
       .where(eq(representativeCustomerSummary.threadId, id));
-    const [newestMessage] = await tx
+    const [newest] = await tx
       .select({ channel: message.channel, externalId: message.externalId })
       .from(message)
       .where(eq(message.threadId, id))
       .orderBy(desc(message.position))
       .limit(1);
-    const [newestCall] = await tx
-      .select({ channel: call.channel, externalId: call.externalId })
-      .from(call)
-      .where(eq(call.threadId, id))
-      .orderBy(desc(call.startedAt))
-      .limit(1);
-    const newest = newestMessage ?? newestCall;
     if (!newest) {
       await cancelThreadJobs(tx, context, each);
       await tx.delete(thread).where(eq(thread.id, id));
@@ -258,6 +241,22 @@ async function removeFromOtherThreads(
         })
         .where(eq(thread.id, id));
     }
+  }
+  // A Call of theirs left on one of those threads names their number; its entry went with their words.
+  const numbers = addresses.filter((each) => each.channel === smsChannel);
+  if (numbers.length > 0) {
+    await tx.delete(representativeCall).where(
+      and(
+        inArray(
+          representativeCall.threadId,
+          tx.select({ id: thread.id }).from(thread).where(inArray(thread.customerId, others)),
+        ),
+        inArray(
+          representativeCall.externalId,
+          numbers.map((each) => each.externalId),
+        ),
+      ),
+    );
   }
   const decision = representativeOutboundDecision;
   await tx

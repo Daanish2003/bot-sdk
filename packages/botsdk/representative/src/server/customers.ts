@@ -684,7 +684,6 @@ export async function exportCustomers(tx: Transaction, userId: string) {
       .select({
         threadId: representativeCall.threadId,
         callId: representativeCall.callId,
-        channel: representativeCall.channel,
         externalId: representativeCall.externalId,
         startedAt: representativeCall.startedAt,
         endedAt: representativeCall.endedAt,

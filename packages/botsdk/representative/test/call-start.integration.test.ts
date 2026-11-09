@@ -487,14 +487,6 @@ describe("the Call's row", () => {
     expect(call!.startedAt).toBeInstanceOf(Date);
   });
 
-  it("holds the caller's address as their SMS identity does", async () => {
-    const { start, calls } = await world();
-
-    await start("call-1", "+1 (555) 0002");
-
-    expect((await calls())[0]).toMatchObject({ channel: "sms", externalId: "+15550002" });
-  });
-
   it("adds no second row for a repeated start, and answers it the same", async () => {
     const { start, calls } = await world();
 

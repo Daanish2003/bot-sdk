@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, ne } from "drizzle-orm";
 
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { FeatureContext } from "@botsdk/bot/feature";
@@ -12,7 +12,12 @@ import {
   type ChannelAccountsView,
   type VoiceAccountView,
 } from "../shared/contract";
-import { representative, representativeChannelAccount, representativeThread } from "./db/schema";
+import {
+  representative,
+  representativeCall,
+  representativeChannelAccount,
+  representativeThread,
+} from "./db/schema";
 import { customerEmailChannel, sendEmail, sendProofEmail } from "./email-address";
 import { requireOwned } from "./representatives";
 import { voicePlatform } from "./voice-adapter";
@@ -115,6 +120,20 @@ export async function channelAccountsView(
             ),
           )
       ).map((row) => row.number);
+  const voiceIds = accounts
+    .filter(({ platform }) => platform === voicePlatform)
+    .map(({ id }) => id);
+  const lastCalls =
+    voiceIds.length === 0
+      ? []
+      : await context.db
+          .select({
+            accountId: representativeCall.channelAccountId,
+            at: max(representativeCall.startedAt),
+          })
+          .from(representativeCall)
+          .where(inArray(representativeCall.channelAccountId, voiceIds))
+          .groupBy(representativeCall.channelAccountId);
   return {
     platforms: platforms.filter(({ platform }) => platform !== voicePlatform),
     voiceOffered: platforms.some(({ platform }) => platform === voicePlatform),
@@ -124,7 +143,13 @@ export async function channelAccountsView(
         webhookUrl: context.channelAccounts.webhookUrl(account.platform, account.id),
         voice:
           account.platform === voicePlatform
-            ? await voiceAccountView(context, account, smsNumbers, linkUrl)
+            ? await voiceAccountView(
+                context,
+                account,
+                smsNumbers,
+                linkUrl,
+                lastCalls.find((call) => call.accountId === account.id)?.at ?? null,
+              )
             : null,
       })),
     ),
@@ -137,6 +162,7 @@ async function voiceAccountView(
   account: { id: string; handle: string },
   smsNumbers: readonly string[],
   linkUrl: string | undefined,
+  lastCallAt: Date | null,
 ): Promise<VoiceAccountView | null> {
   const credentials = await context.channelAccounts.credentialsOf(account.id, voicePlatform);
   if (!credentials) return null;
@@ -144,6 +170,7 @@ async function voiceAccountView(
     greeting: credentials.greeting ?? defaultVoiceGreeting,
     hookUrl: voiceHookUrl(linkUrl, account.id),
     smsPaired: smsNumbers.includes(account.handle),
+    lastCallAt,
   };
 }
 

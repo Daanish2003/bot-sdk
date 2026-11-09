@@ -1,8 +1,6 @@
 CREATE TABLE "botsdk"."representative_call" (
 	"id" uuid PRIMARY KEY,
 	"call_id" text NOT NULL,
-	"channel" text NOT NULL,
-	"external_id" text NOT NULL,
 	"thread_id" uuid NOT NULL,
 	"channel_account_id" uuid,
 	"started_at" timestamp NOT NULL,

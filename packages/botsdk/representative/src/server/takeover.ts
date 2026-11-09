@@ -111,7 +111,7 @@ export async function lockThread(tx: Transaction, userId: string, threadId: stri
 }
 
 /** Owner activity counts as the thread's, so Hand back starts its idle days; its time never moves back. */
-const activeAt = (now: Date) => ({
+export const activeAt = (now: Date) => ({
   updatedAt: sql`greatest(${representativeThread.updatedAt}, ${now.toISOString()}::timestamp)`,
 });
 

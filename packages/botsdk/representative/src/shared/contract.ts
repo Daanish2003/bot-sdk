@@ -445,7 +445,7 @@ export type ThreadSummary = {
 /** One message of a thread's transcript, with where it was heard from or sent to. */
 export type ThreadMessageView = {
   id: string;
-  author: "customer" | "representative" | "owner" | "note" | "bot";
+  author: "customer" | "representative" | "owner" | "note" | "bot" | "call";
   text: string;
   channel: string;
   externalId: string;
@@ -453,7 +453,20 @@ export type ThreadMessageView = {
   verified: boolean;
   /** A Representative's reply's kind and sources; null on every other message. */
   reply: ReplyProof | null;
+  /** A phone Call's entry; null on every other message. */
+  call: CallEntryView | null;
   createdAt: Date;
+};
+
+/** One thing said on a phone Call. */
+export type CallLine = { role: "caller" | "agent"; text: string };
+
+/** A `call` entry as the owner reads it: the group between its dividers (the verdict on #1366). */
+export type CallEntryView = {
+  status: "in_progress" | "ended" | "ended_no_transcript";
+  startedAt: Date;
+  endedAt: Date | null;
+  lines: CallLine[];
 };
 
 /** A message the Outbound gate held (ticket #1304), which the owner sends or drops. Not in the transcript. */
@@ -501,6 +514,8 @@ export type ThreadView = ThreadSummary & {
   messages: ThreadMessageView[];
   /** What the gate has held on this thread, oldest first. */
   held: HeldMessageView[];
+  /** A Call on the line now, which has no entry until it ends. */
+  liveCall: { startedAt: Date } | null;
 };
 
 /** The longest one thread message may be, whoever wrote it. */
@@ -902,7 +917,12 @@ export type VoiceAccountView = {
   hookUrl: string | null;
   /** Whether an SMS account on this Representative has the same number, so follow-up texts come from it. */
   smsPaired: boolean;
+  /** When the last Call this account answered began; null before its first. */
+  lastCallAt: Date | null;
 };
+
+/** The most a Call may last, which the Voice agent enforces. */
+export const callLimitSeconds = 600;
 
 /** A voice account's new secret, in the one view that shows it. */
 export type VoiceAccountSecret = { secret: string; view: ChannelAccountsView };

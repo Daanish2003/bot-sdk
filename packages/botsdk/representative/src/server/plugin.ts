@@ -67,6 +67,7 @@ import { assignmentDueJob, ownerWaitJob } from "./stalled-work";
 import { stopUserTurns } from "./thread-turns";
 import type { ClientIp } from "./web-chat-limits";
 import { unsubscribeRoutes } from "./email-unsubscribe";
+import { callEndRoutes } from "./call-end";
 import { callStartRoutes } from "./call-start";
 import { callRequestRoutes } from "./call-request";
 import { webChatRoutes, withWebChat } from "./web-chat";
@@ -217,6 +218,7 @@ export function representativeFeature(
       ...unsubscribeRoutes(channelOf),
       ...callStartRoutes,
       ...callRequestRoutes,
+      ...callEndRoutes,
     ],
     jobs: [
       representativeTurnJob(options.concurrency, channelOf),
