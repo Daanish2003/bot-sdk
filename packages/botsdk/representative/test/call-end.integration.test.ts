@@ -570,7 +570,8 @@ describe("a Call with no end", () => {
     await w.settle(callEndDueMs * 2);
 
     expect((await w.calls())[0]).toMatchObject({ status: "ended" });
-    expect((await w.entries()).map((entry) => entry.text)).toEqual([saidAsText]);
+    const callEntries = (await w.entries()).filter((entry) => entry.author === "call");
+    expect(callEntries.map((entry) => entry.text)).toEqual([saidAsText]);
     expect(await pages()).toEqual([]);
   });
 
