@@ -291,8 +291,16 @@ Anything that sends to a Bot or shows what it sends: the user's apps (web, deskt
 _Avoid_: App, surface, client, platform
 
 **Channel account**:
-The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several.
+The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several. A Representative's voice account is a Channel account that holds a phone number for Calls and the secret its Voice agent presents; it pairs with an SMS account on the same number.
 _Avoid_: Connection (that is an MCP sign-in), integration, bot token
+
+**Call**:
+A Customer phoning a Representative's number. A Voice agent holds it and talks, following the current Release and published facts, so what is said on a Call never passes the outbound gate. The caller is always unverified, and is the same Customer as the SMS Customer with that number. When the Call ends, its transcript joins the Customer's thread as one entry and the Representative reviews it, flags what went wrong and follows up by text.
+_Avoid_: Voice session, phone chat
+
+**Voice agent**:
+The program at a voice vendor, outside the product, that holds a Call and runs the conversation with its own model. The user runs it; the product only tells it what to say at the start of each Call and hears what happened.
+_Avoid_: Agent, call bot, voice gateway
 
 **Linked identity**:
 The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered.
