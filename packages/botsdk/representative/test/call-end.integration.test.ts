@@ -17,7 +17,7 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
-import { callEndDueMs } from "../src/server/call-lost";
+import { callEndDueMs, callLostJobName } from "../src/server/call-lost";
 import { noCustomerChannel } from "../src/server/customer-proof";
 import { maxThreadMessageLength } from "../src/shared/contract";
 import {
@@ -589,14 +589,14 @@ describe("a Call with no end", () => {
     expect((await w.calls())[0]).toMatchObject({ status: "ended_no_transcript" });
   });
 
-  it("queues one job however many times the Call is started", async () => {
+  it("queues one job however many times the Call is started, even at once", async () => {
     const w = await world();
-    const before = await w.jobCount();
-    await w.callStarts();
-    const once = await w.jobCount();
+    const lost = async () =>
+      (await getTestDb().select().from(job)).filter((row) => row.name === callLostJobName);
+
+    await Promise.all(Array.from({ length: 5 }, () => w.callStarts()));
     await w.callStarts();
 
-    expect(await w.jobCount()).toBe(once);
-    expect(once).toBeGreaterThan(before);
+    expect(await lost()).toHaveLength(1);
   });
 });
