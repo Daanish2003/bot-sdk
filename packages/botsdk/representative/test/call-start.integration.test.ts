@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deleteUserData, exportUserData } from "@botsdk/bot/user-data";
@@ -606,6 +606,94 @@ describe("record_request (ticket #1383)", () => {
     expect(await emergencyPages(w)).toHaveLength(1);
     expect((await w.calls())[0]!.requests).toHaveLength(2);
     expect(await getTestDb().select().from(representativeThreadMessage)).toEqual([]);
+  });
+
+  it("pages on an emergency that arrives just after the Call ended, storing nothing", async () => {
+    const w = await world();
+    await w.start("call-1");
+    await getTestDb()
+      .update(representativeCall)
+      .set({ status: "ended" })
+      .where(eq(representativeCall.callId, "call-1"));
+
+    const response = await record(w, {
+      callId: "call-1",
+      request: "There's smoke",
+      emergency: true,
+    });
+
+    expect(await response.json()).toEqual({ recorded: false });
+    expect(await emergencyPages(w)).toHaveLength(1);
+    expect((await w.calls())[0]!.requests).toEqual([]);
+  });
+
+  it("pages on an emergency past the cap of requests, which it doesn't store", async () => {
+    const w = await world();
+    await w.start("call-1");
+    await getTestDb()
+      .update(representativeCall)
+      .set({
+        requests: Array.from({ length: 20 }, (_, n) => ({
+          request: `r${n}`,
+          emergency: false,
+        })),
+      })
+      .where(eq(representativeCall.callId, "call-1"));
+
+    await record(w, { callId: "call-1", request: "Gas smell", emergency: true });
+
+    expect(await emergencyPages(w)).toHaveLength(1);
+    expect((await w.calls())[0]!.requests).toHaveLength(20);
+  });
+
+  it("pages nobody for a call id it never answered, emergency or not", async () => {
+    const w = await world();
+    await w.start("call-1");
+
+    await record(w, { callId: "other", request: "Gas smell", emergency: true });
+
+    expect(await emergencyPages(w)).toEqual([]);
+  });
+
+  it("takes the thread's lock before the Call's, the order a Call's end takes them in", async () => {
+    const w = await world();
+    await w.start("call-1");
+    const threadId = await w.threadOf();
+    const body = { callId: "call-1", request: "Gas smell", emergency: true };
+    let sent: Promise<Response> | undefined;
+    await getTestDb().transaction(async (holder) => {
+      await holder
+        .select({ id: representativeThread.id })
+        .from(representativeThread)
+        .where(eq(representativeThread.id, threadId))
+        .for("update");
+      sent = record(w, body);
+      // The request is now waiting on the thread's row, which this transaction holds.
+      await expect
+        .poll(
+          async () => {
+            const { rows } = await getTestDb().execute<{ n: number }>(
+              sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+            );
+            return rows[0]!.n;
+          },
+          { timeout: 10_000 },
+        )
+        .toBeGreaterThan(0);
+      // It holds nothing else while it waits: taking the Call's row first is what deadlocks a
+      // Call's end, which holds the thread and waits for the Call.
+      await expect(
+        getTestDb().transaction((tx) =>
+          tx
+            .select({ id: representativeCall.id })
+            .from(representativeCall)
+            .where(eq(representativeCall.callId, "call-1"))
+            .for("update", { noWait: true }),
+        ),
+      ).resolves.toHaveLength(1);
+    });
+    await sent;
+    expect(await emergencyPages(w)).toHaveLength(1);
   });
 
   it("answers 400 to a body that isn't the contract's", async () => {

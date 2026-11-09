@@ -75,7 +75,7 @@ export async function stopForScript(
 }
 
 /** The thread's owner, with its row held, as the writes to it need it; a caller holding the Customer's row took it first. */
-async function holdThreadOwner(tx: Transaction, threadId: string) {
+export async function holdThreadOwner(tx: Transaction, threadId: string) {
   const [owner] = await tx
     .select({
       userId: representative.userId,

@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { page } from "@botsdk/bot/storage";
-import { representative, representativeThread } from "./db/schema";
+import { holdThreadOwner } from "./emergency-script";
 
 /*
  * A bad Call's flag (ticket #1386, ADR 0036): the post-call Turn found something the Voice agent said
@@ -23,16 +23,7 @@ export async function flagCall(
   tx: Transaction,
   { threadId, callId, what }: { threadId: string; callId: string; what: string },
 ) {
-  const [owner] = await tx
-    .select({
-      userId: representative.userId,
-      representativeId: representative.id,
-      name: representative.name,
-    })
-    .from(representativeThread)
-    .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
-    .where(eq(representativeThread.id, threadId))
-    .for("update", { of: representativeThread });
+  const owner = await holdThreadOwner(tx, threadId);
   if (!owner) return false;
   const cause = callFlagCause(callId);
   const [paged] = await tx

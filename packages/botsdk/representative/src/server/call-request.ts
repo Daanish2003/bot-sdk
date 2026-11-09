@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import { noNul } from "../shared/contract";
 import { representativeCall } from "./db/schema";
-import { pageEmergency } from "./emergency-script";
+import { holdThreadOwner, pageEmergency } from "./emergency-script";
 import { callIdField, voiceHookRoute, type VoiceHookAccount } from "./voice-hook";
 
 /*
@@ -29,6 +29,18 @@ async function recordRequest(
 ) {
   const recorded = await context.db.transaction(async (tx) => {
     const [call] = await tx
+      .select({ id: representativeCall.id, threadId: representativeCall.threadId })
+      .from(representativeCall)
+      .where(
+        and(
+          eq(representativeCall.channelAccountId, account.id),
+          eq(representativeCall.callId, callId),
+        ),
+      );
+    if (!call) return false;
+    // The thread's row before the Call's, the order every end of a Call takes them in.
+    if (!(await holdThreadOwner(tx, call.threadId))) return false;
+    const [stored] = await tx
       .update(representativeCall)
       .set({
         // Appended in the database, so two requests at once both stay.
@@ -38,17 +50,16 @@ async function recordRequest(
       })
       .where(
         and(
-          eq(representativeCall.channelAccountId, account.id),
-          eq(representativeCall.callId, callId),
+          eq(representativeCall.id, call.id),
           // Only a Call still going takes a request, and no more than a Call plausibly makes.
           eq(representativeCall.status, "in_progress"),
           sql`jsonb_array_length(${representativeCall.requests}) < ${maxRequests}`,
         ),
       )
-      .returning({ threadId: representativeCall.threadId });
-    if (!call) return false;
+      .returning({ id: representativeCall.id });
+    // Whether or not the row can take it: an emergency reported as the caller hangs up still Pages.
     if (emergency) await pageEmergency(context, tx, { threadId: call.threadId });
-    return true;
+    return stored !== undefined;
   });
   return { recorded };
 }
