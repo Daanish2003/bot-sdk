@@ -860,6 +860,7 @@ describe("who can reach a Turn", () => {
       "updateDraft",
       "voiceAccountConnect",
       "voiceAccountRegenerate",
+      "voiceAccountSetGreeting",
       "widgetKeyCreate",
       "widgetKeyDisable",
       "widgetKeyGet",

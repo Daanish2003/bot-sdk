@@ -4,7 +4,11 @@ import { and, eq } from "drizzle-orm";
 
 import { channelAccount } from "@botsdk/bot/storage";
 import { rpcError } from "@botsdk/bot/rpc-error";
-import { defaultVoiceGreeting, type VoiceAccountSecret } from "../shared/contract";
+import {
+  defaultVoiceGreeting,
+  type ChannelAccountsView,
+  type VoiceAccountSecret,
+} from "../shared/contract";
 import { channelAccountsView, connectChannelAccount, type Context } from "./channel-accounts";
 import { representativeChannelAccount } from "./db/schema";
 import { requireOwned } from "./representatives";
@@ -53,15 +57,12 @@ export async function connectVoiceAccount(
   return { secret, view: await channelAccountsView(context, userId, representativeId, linkUrl) };
 }
 
-/**
- * Replaces a voice account's secret at once, keeping its number and greeting. Refused when the
- * Representative doesn't hold such an account.
- */
-export async function regenerateVoiceSecret(
+/** The credentials of the Representative's voice account, after checking the owner has it; else NOT_FOUND. */
+async function heldVoiceCredentials(
   context: Context,
-  input: { userId: string; representativeId: string; channelAccountId: string; linkUrl?: string },
-): Promise<VoiceAccountSecret> {
-  const { userId, representativeId, channelAccountId, linkUrl } = input;
+  input: { userId: string; representativeId: string; channelAccountId: string },
+) {
+  const { userId, representativeId, channelAccountId } = input;
   await requireOwned(context.db, userId, representativeId);
   const [held] = await context.db
     .select({ id: channelAccount.id })
@@ -78,16 +79,55 @@ export async function regenerateVoiceSecret(
   if (!credentials) {
     throw rpcError("NOT_FOUND", "error.voiceAccountNotFound", "No such voice account");
   }
+  return {
+    number: credentials.number ?? "",
+    greeting: credentials.greeting ?? defaultVoiceGreeting,
+    secret: credentials.secret ?? "",
+  };
+}
+
+/**
+ * Replaces a voice account's secret at once, keeping its number and greeting. Refused when the
+ * Representative doesn't hold such an account.
+ */
+export async function regenerateVoiceSecret(
+  context: Context,
+  input: { userId: string; representativeId: string; channelAccountId: string; linkUrl?: string },
+): Promise<VoiceAccountSecret> {
+  const { userId, representativeId, linkUrl } = input;
+  const credentials = await heldVoiceCredentials(context, input);
   const secret = newSecret();
   await connectChannelAccount(context, {
     userId,
     representativeId,
     platform: voicePlatform,
-    credentials: {
-      number: credentials.number ?? "",
-      greeting: credentials.greeting ?? defaultVoiceGreeting,
-      secret,
-    },
+    credentials: { ...credentials, secret },
   });
   return { secret, view: await channelAccountsView(context, userId, representativeId, linkUrl) };
+}
+
+/**
+ * Changes a voice account's greeting, with no new approval: its number and secret stay, so a running
+ * Voice agent keeps working. An empty greeting is the default, as when connecting. Refused when the
+ * Representative doesn't hold such an account.
+ */
+export async function setVoiceGreeting(
+  context: Context,
+  input: {
+    userId: string;
+    representativeId: string;
+    channelAccountId: string;
+    greeting: string;
+    linkUrl?: string;
+  },
+): Promise<ChannelAccountsView> {
+  const { userId, representativeId, linkUrl } = input;
+  const credentials = await heldVoiceCredentials(context, input);
+  await connectChannelAccount(context, {
+    userId,
+    representativeId,
+    platform: voicePlatform,
+    credentials: { ...credentials, greeting: input.greeting || defaultVoiceGreeting },
+  });
+  return channelAccountsView(context, userId, representativeId, linkUrl);
 }

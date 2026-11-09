@@ -246,6 +246,13 @@ export function useConnectVoiceAccount(
   return useMutation(useRepresentative().voiceAccountConnect.mutationOptions(options));
 }
 
+/** Changes a voice account's greeting, keeping its secret (`representative.voiceAccountSetGreeting`). */
+export function useSetVoiceGreeting(
+  options?: ProcedureMutationOptions<Representative["voiceAccountSetGreeting"]>,
+) {
+  return useMutation(useRepresentative().voiceAccountSetGreeting.mutationOptions(options));
+}
+
 /** Gives a voice account a new secret, shown once (`representative.voiceAccountRegenerate`). */
 export function useRegenerateVoiceSecret(
   options?: ProcedureMutationOptions<Representative["voiceAccountRegenerate"]>,

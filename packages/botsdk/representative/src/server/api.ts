@@ -6,6 +6,7 @@ import {
   channelAccountRemoveInput,
   voiceAccountConnectInput,
   voiceAccountRegenerateInput,
+  voiceAccountSetGreetingInput,
   customerAddIdentityInput,
   customerCreateInput,
   customerMergeInput,
@@ -84,7 +85,7 @@ import {
   uploadDocument,
 } from "./representatives";
 import { type CustomerChannel, noCustomerChannel } from "./customer-proof";
-import { connectVoiceAccount, regenerateVoiceSecret } from "./voice-account";
+import { connectVoiceAccount, regenerateVoiceSecret, setVoiceGreeting } from "./voice-account";
 import { dropHeldMessage, ownerInbox, sendHeldMessage } from "./held-messages";
 import {
   approveReplyDraft,
@@ -246,6 +247,20 @@ export function representativeApi(
         userId,
         representativeId: id,
         number,
+        greeting,
+        linkUrl,
+      });
+    },
+
+    voiceAccountSetGreeting: async ({
+      userId,
+      ...rest
+    }: WithUser<typeof voiceAccountSetGreetingInput>) => {
+      const { id, channelAccountId, greeting } = parseInput(voiceAccountSetGreetingInput, rest);
+      return setVoiceGreeting(context, {
+        userId,
+        representativeId: id,
+        channelAccountId,
         greeting,
         linkUrl,
       });
