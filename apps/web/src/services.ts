@@ -5,6 +5,7 @@ import { createHttpHandler, createScreenSocket } from "@botsdk/bot/http";
 import { createBotSdk } from "@botsdk/bot";
 import { redisRuntime, redisStore } from "@botsdk/pubsub-redis";
 import { sms } from "@botsdk/channel-sms";
+import { voice } from "@botsdk/representative";
 import { telegram } from "@botsdk/channel-telegram";
 import { emailChannel } from "@botsdk/bot/channel";
 import { fakeImageAdapter } from "@botsdk/bot/models";
@@ -142,6 +143,9 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     // SMS (spec #1174): Telnyx, or the lab phone when SMS_API_BASE points at it. The keys and the
     // number are per Channel account.
     sms({ apiBase: smsApiBase }),
+    // Phone calls (ticket #1381, ADR 0036): a voice account in a Representative's setup. It sends and
+    // receives nothing; the Voice agent calls the Representative's hooks.
+    voice(),
     // Web push (spec #1024): on only with the Host's VAPID key pair (VAPID_*).
     ...webPushChannelsOf({
       VAPID_PUBLIC_KEY: ENV.VAPID_PUBLIC_KEY,

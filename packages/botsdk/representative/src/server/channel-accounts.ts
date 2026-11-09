@@ -5,11 +5,17 @@ import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { channelAccount } from "@botsdk/bot/storage";
 import { MessagingSendError } from "@botsdk/bot/channel";
+import { rpcError } from "@botsdk/bot/rpc-error";
 import { AccountSendError, type ChannelOf, smsChannel } from "./customer-proof";
-import type { ChannelAccountsView } from "../shared/contract";
+import {
+  defaultVoiceGreeting,
+  type ChannelAccountsView,
+  type VoiceAccountView,
+} from "../shared/contract";
 import { representative, representativeChannelAccount, representativeThread } from "./db/schema";
 import { customerEmailChannel, sendEmail, sendProofEmail } from "./email-address";
 import { requireOwned } from "./representatives";
+import { voicePlatform } from "./voice-adapter";
 
 /*
  * The Channel accounts a Representative holds (ticket #1331, ADR 0033). The core stores and encrypts
@@ -17,7 +23,7 @@ import { requireOwned } from "./representatives";
  * the owner has it. The owner connects, sees and removes them on the Representative's page (#1358).
  */
 
-type Context = Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts">;
+export type Context = Pick<FeatureContext<"channelAccounts">, "db" | "channelAccounts">;
 
 /**
  * Connects the platform bot behind `credentials` to the owner's Representative, once the platform
@@ -75,29 +81,85 @@ export async function listChannelAccounts(
     .orderBy(asc(channelAccount.id));
 }
 
-/** What the owner sees of the Representative's Channel accounts: where one can be connected, and what it holds. */
+/** The base the Voice agent's three hooks sit under, for account `accountId`; null without a `linkUrl`. */
+const voiceHookUrl = (linkUrl: string | undefined, accountId: string) =>
+  linkUrl ? `${linkUrl.replace(/\/+$/, "")}/representative/voice/${accountId}` : null;
+
+/**
+ * What the owner sees of the Representative's Channel accounts: where one can be connected, and what it
+ * holds. A voice account shows its greeting, hook URL and whether an SMS account has its number.
+ */
 export async function channelAccountsView(
   context: Pick<Context, "db" | "channelAccounts">,
   userId: string,
   representativeId: string,
+  linkUrl?: string,
 ): Promise<ChannelAccountsView> {
   const accounts = await listChannelAccounts(context, userId, representativeId);
+  const platforms = context.channelAccounts.platforms();
+  // Read only when there is a voice account to pair.
+  const smsNumbers = !accounts.some(({ platform }) => platform === voicePlatform)
+    ? []
+    : (
+        await context.db
+          .select({ number: channelAccount.platformBotId })
+          .from(representativeChannelAccount)
+          .innerJoin(
+            channelAccount,
+            eq(channelAccount.id, representativeChannelAccount.channelAccountId),
+          )
+          .where(
+            and(
+              eq(representativeChannelAccount.representativeId, representativeId),
+              eq(channelAccount.platform, smsChannel),
+            ),
+          )
+      ).map((row) => row.number);
   return {
-    platforms: context.channelAccounts.platforms(),
-    accounts: accounts.map((account) => ({
-      ...account,
-      webhookUrl: context.channelAccounts.webhookUrl(account.platform, account.id),
-    })),
+    platforms: platforms.filter(({ platform }) => platform !== voicePlatform),
+    voiceOffered: platforms.some(({ platform }) => platform === voicePlatform),
+    accounts: await Promise.all(
+      accounts.map(async (account) => ({
+        ...account,
+        webhookUrl: context.channelAccounts.webhookUrl(account.platform, account.id),
+        voice:
+          account.platform === voicePlatform
+            ? await voiceAccountView(context, account, smsNumbers, linkUrl)
+            : null,
+      })),
+    ),
   };
 }
 
-/** Connects an account (see `connectChannelAccount`) and returns the owner's view of the Representative's accounts. */
+/** A voice account's setup, read from its credentials; null when none can read them. */
+async function voiceAccountView(
+  context: Pick<Context, "channelAccounts">,
+  account: { id: string; handle: string },
+  smsNumbers: readonly string[],
+  linkUrl: string | undefined,
+): Promise<VoiceAccountView | null> {
+  const credentials = await context.channelAccounts.credentialsOf(account.id, voicePlatform);
+  if (!credentials) return null;
+  return {
+    greeting: credentials.greeting ?? defaultVoiceGreeting,
+    hookUrl: voiceHookUrl(linkUrl, account.id),
+    smsPaired: smsNumbers.includes(account.handle),
+  };
+}
+
+/**
+ * Connects an account (see `connectChannelAccount`) and returns the owner's view of the Representative's
+ * accounts. A voice account isn't connected here: its secret is made by `connectVoiceAccount`.
+ */
 export async function connectChannelAccountView(
   context: Context,
-  input: Parameters<typeof connectChannelAccount>[1],
+  input: Parameters<typeof connectChannelAccount>[1] & { linkUrl?: string },
 ): Promise<ChannelAccountsView> {
+  if (input.platform === voicePlatform) {
+    throw rpcError("NOT_FOUND", "error.channelPlatformNotFound", "No such messaging Channel");
+  }
   await connectChannelAccount(context, input);
-  return channelAccountsView(context, input.userId, input.representativeId);
+  return channelAccountsView(context, input.userId, input.representativeId, input.linkUrl);
 }
 
 /**
@@ -109,6 +171,7 @@ export async function removeChannelAccount(
   userId: string,
   representativeId: string,
   channelAccountId: string,
+  linkUrl?: string,
 ): Promise<ChannelAccountsView> {
   const removed = await context.db.transaction(async (tx) => {
     await requireOwned(tx, userId, representativeId, true);
@@ -128,7 +191,7 @@ export async function removeChannelAccount(
     return held.map((row) => row.id);
   });
   await context.channelAccounts.changed(removed);
-  return channelAccountsView(context, userId, representativeId);
+  return channelAccountsView(context, userId, representativeId, linkUrl);
 }
 
 /** The Representative's active account on `channel`: `preferred` while it's there, or the oldest. */

@@ -239,6 +239,20 @@ export function useConnectChannelAccount(
   return useMutation(useRepresentative().channelAccountConnect.mutationOptions(options));
 }
 
+/** Connects a voice account and gets its secret, shown once (`representative.voiceAccountConnect`). */
+export function useConnectVoiceAccount(
+  options?: ProcedureMutationOptions<Representative["voiceAccountConnect"]>,
+) {
+  return useMutation(useRepresentative().voiceAccountConnect.mutationOptions(options));
+}
+
+/** Gives a voice account a new secret, shown once (`representative.voiceAccountRegenerate`). */
+export function useRegenerateVoiceSecret(
+  options?: ProcedureMutationOptions<Representative["voiceAccountRegenerate"]>,
+) {
+  return useMutation(useRepresentative().voiceAccountRegenerate.mutationOptions(options));
+}
+
 /** Removes one of a Representative's Channel accounts (`representative.channelAccountRemove`). */
 export function useRemoveChannelAccount(
   options?: ProcedureMutationOptions<Representative["channelAccountRemove"]>,

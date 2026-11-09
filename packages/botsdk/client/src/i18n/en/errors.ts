@@ -63,6 +63,8 @@ export const errorMessages = {
   "error.customerMergeLater": "Undo the later merge of this Customer first.",
   "error.representativeJobTextBlank":
     "Write the job text before approving: a Release needs to say what the Representative does.",
+  "error.voiceNumberInvalid": "That isn't a phone number in E.164 format, such as +15551234567.",
+  "error.voiceAccountNotFound": "That voice account isn't connected to this Representative.",
   "error.representativeNoRelease": "Approve a Release before switching this Representative on.",
   "error.representativeTestsFailed":
     "A test conversation failed. Fix the draft, or approve anyway and say why.",
