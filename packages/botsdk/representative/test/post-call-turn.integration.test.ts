@@ -470,6 +470,22 @@ describe("the Turn a finished Call wakes", () => {
     ]);
   });
 
+  it("numbers no Calls for the Bot, which has no flag_call to number them for", async () => {
+    const { calls, settle, assignments } = await world(
+      Array.from({ length: turnStepLimit + 2 }, (_, index) =>
+        round(replyCall("Following up.", `reply-${index}`)),
+      ),
+      { accounts: true },
+    );
+
+    await calls("call-1");
+    await calls("call-2");
+    await settle();
+
+    const [assignment] = await assignments();
+    expect(assignment!.instructions).not.toContain("you are reviewing");
+  });
+
   it("that runs out of Steps still gets the Call to the Bot", async () => {
     const { calls, settle, assignments } = await world(
       Array.from({ length: turnStepLimit + 2 }, (_, index) =>

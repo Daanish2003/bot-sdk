@@ -1242,7 +1242,12 @@ const codeHandOffInstructions = (entries: ThreadEntry[], verifiedTurn: boolean) 
       entries
         .filter(spokeAsCustomer)
         .slice(-codeHandOffMessages)
-        .map((entry) => ({ ...entry, text: entry.text.slice(0, codeHandOffMessageLength) })),
+        // The Bot has no `flag_call`, so no Call is numbered for it.
+        .map((entry) => ({
+          ...entry,
+          callId: undefined,
+          text: entry.text.slice(0, codeHandOffMessageLength),
+        })),
       verifiedTurn,
     ).map((message) => message.content),
   ].join("\n\n");
