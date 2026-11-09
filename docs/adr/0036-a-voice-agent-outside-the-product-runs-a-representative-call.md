@@ -1,5 +1,5 @@
 ---
-Status: proposed
+Status: accepted
 ---
 
 # A Voice agent outside the product runs a Representative's Call, and speech skips the outbound gate
