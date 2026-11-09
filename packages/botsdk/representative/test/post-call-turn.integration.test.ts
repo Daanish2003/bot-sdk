@@ -28,10 +28,12 @@ import {
   representativeCustomer,
   representativeCustomerIdentity,
   representativeHeldMessage,
+  representativeCall,
   representativeOutboundDecision,
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
+import { callFlagCause } from "../src/server/call-flag";
 import { ownerWaitJobName } from "../src/server/stalled-work";
 import { inboundLimit } from "../src/server/inbound-limit";
 import { representativeFeature } from "../src/server/plugin";
@@ -940,6 +942,58 @@ describe("flagging a Call", () => {
 
     expect(await pages()).toHaveLength(1);
     expect(JSON.stringify(fake.calls[1]!.messages)).toContain("flagged already");
+  });
+
+  describe("with two Calls in one batch", () => {
+    const flagsCall = (what: string, call: number | undefined, id: string) =>
+      toolCall({ name: "flag_call", input: { what, ...(call !== undefined && { call }) }, id });
+
+    /** Two Calls finished in one batch, with a Model that flags as `rounds` say. */
+    const bothCalls = async (rounds: Rounds) => {
+      const w = await world(rounds);
+      await w.calls("call-1");
+      await w.calls("call-2");
+      await w.settle();
+      const rows = await getTestDb()
+        .select()
+        .from(representativeCall)
+        .orderBy(asc(representativeCall.id));
+      return { ...w, older: rows[0]!.id, newer: rows[1]!.id };
+    };
+
+    it("flags the earlier Call as itself, and leaves the later one still to flag", async () => {
+      const { older, newer, fake } = await bothCalls([
+        round(flagsCall("The earlier Call went wrong.", 1, "one")),
+        round(flagsCall("And the later one.", 2, "two")),
+        round(),
+      ]);
+
+      expect((await pages()).map(({ cause }) => cause).sort()).toEqual(
+        [callFlagCause(older), callFlagCause(newer)].sort(),
+      );
+      const pageFor = (await pages()).find(({ cause }) => cause === callFlagCause(older));
+      expect(pageFor!.text).toContain("The earlier Call went wrong.");
+      expect(JSON.stringify(fake.calls[1]!.messages)).not.toContain("flagged already");
+    });
+
+    it("refuses a second flag of the same Call only", async () => {
+      const { older, fake } = await bothCalls([
+        round(flagsCall("Bad.", 1, "one"), flagsCall("Still bad.", 1, "two")),
+        round(),
+      ]);
+
+      expect((await pages()).map(({ cause }) => cause)).toEqual([callFlagCause(older)]);
+      expect(JSON.stringify(fake.calls[1]!.messages)).toContain("flagged already");
+    });
+
+    it("asks which Call rather than guessing, with no Page", async () => {
+      const { fake } = await bothCalls([round(flags("Which one?")), round()]);
+
+      expect(await pages()).toEqual([]);
+      const read = JSON.stringify(fake.calls[1]!.messages);
+      expect(read).toContain("call 2 of 2");
+      expect(read).toContain("Say which call this is");
+    });
   });
 
   it("Pages once for each Call", async () => {

@@ -736,10 +736,11 @@ const alwaysOnTools = [optOutTool, emergencyTool] as const;
 /** Only a Turn that reviews a finished Call has it, and no Release lists it. */
 const flagCallTool = "flag_call";
 
-/** The Call this Turn reviews: the newest in its batch. */
-const reviewedCall = (entries: ThreadEntry[]) =>
-  entries.filter((entry) => entry.author === "call" && !entry.earlier && entry.callId).at(-1)
-    ?.callId;
+/** The Calls this Turn reviews, the oldest first: those that finished in its batch. */
+const reviewedCalls = (entries: ThreadEntry[]) =>
+  entries.flatMap((entry) =>
+    entry.author === "call" && !entry.earlier && entry.callId ? [entry.callId] : [],
+  );
 
 /** The code-defined tools, by the name a Release lists them under. None takes a Customer's id. */
 export function turnTools(turn: Turn) {
@@ -1081,12 +1082,29 @@ export function turnTools(turn: Turn) {
         "Flag the phone call you are reviewing to the owner, when the voice agent said anything outside the topics the owner lets go out by themselves, or made a claim the published facts don't support. Say what went wrong in a sentence or two. The owner is alerted, once per call. Nothing goes to the Customer.",
       inputSchema: z.object({
         what: z.string().trim().min(1).max(1_000).refine(noNul),
+        call: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(
+            'Which call, when you are reviewing more than one: its number in the transcripts, "call 1 of 2" being 1. Leave it out when there is only one.',
+          ),
       }),
-    }).server(async ({ what }, context) => {
-      const callId = reviewedCall(entries);
+    }).server(async ({ what, call }, context) => {
+      const calls = reviewedCalls(entries);
+      const callId =
+        calls.length === 1 ? calls[0] : call !== undefined ? calls[call - 1] : undefined;
       return kit.liveActivity(flagCallTool, context?.toolCallId, async (tx) => {
         // A test conversation reaches no one, and has no Call.
-        if (thread !== null && callId) {
+        if (thread !== null && calls.length > 0) {
+          if (!callId) {
+            return {
+              flagged: false,
+              note: `You are reviewing ${calls.length} calls. Say which call this is, with its number from the transcripts.`,
+            };
+          }
           // The Customer's row before the thread's, the order a merge and a delete take them in.
           await holdThreadCustomer(tx, thread.threadId);
           if (!(await flagCall(job, tx, { threadId: thread.threadId, callId, what }))) {
@@ -1196,9 +1214,12 @@ const topicsPrompt = (names: string[]) =>
  * system's. A verified sender's Turn also tells that sender's words from an unverified one's; an
  * unverified sender's Turn reads only its own.
  */
-const threadPrompt = (entries: ThreadEntry[], verifiedTurn: boolean) =>
-  entries.map((entry) => {
+const threadPrompt = (entries: ThreadEntry[], verifiedTurn: boolean) => {
+  const reviewed = reviewedCalls(entries);
+  return entries.map((entry) => {
     const unverified = verifiedTurn && !entry.verified;
+    // Numbered only when there are several, for `flag_call` to say which.
+    const called = entry.callId && reviewed.length > 1 ? reviewed.indexOf(entry.callId) : -1;
     return {
       role: "user" as const,
       content: untrustedBlock(
@@ -1206,11 +1227,12 @@ const threadPrompt = (entries: ThreadEntry[], verifiedTurn: boolean) =>
           ? unverified
             ? earlierUnverifiedBotResult
             : earlierBotResult
-          : `${(unverified ? unverifiedLabels : labels)[entry.author]}${entry.assignmentId ? citeAs(entry.assignmentId) : ""}`,
+          : `${called >= 0 ? `This is call ${called + 1} of ${reviewed.length} you are reviewing. ` : ""}${(unverified ? unverifiedLabels : labels)[entry.author]}${entry.assignmentId ? citeAs(entry.assignmentId) : ""}`,
         entry.text,
       ),
     };
   });
+};
 
 /** What the Bot reads of code's hand-off: why it has the work, then what the Customer last wrote, under the same labels. */
 const codeHandOffInstructions = (entries: ThreadEntry[], verifiedTurn: boolean) =>
@@ -1313,7 +1335,7 @@ export async function playLoop(
         ...new Set<string>([
           ...(content.tools as readonly string[]).filter((tool) => tool !== flagCallTool),
           ...alwaysOnTools,
-          ...(reviewedCall(entries) ? [flagCallTool] : []),
+          ...(reviewedCalls(entries).length > 0 ? [flagCallTool] : []),
         ]),
       ].flatMap((tool): AnyServerTool[] =>
         Object.hasOwn(tools, tool)
