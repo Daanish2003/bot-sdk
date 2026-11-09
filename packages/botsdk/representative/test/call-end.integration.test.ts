@@ -521,7 +521,7 @@ describe("what the owner sees", () => {
 describe("a Call with no end", () => {
   const pages = () => getTestDb().select().from(page);
   const dropped = async () => {
-    const w = await world();
+    const w = await world([quiet]);
     await w.callStarts();
     return w;
   };
@@ -570,8 +570,7 @@ describe("a Call with no end", () => {
     await w.settle(callEndDueMs * 2);
 
     expect((await w.calls())[0]).toMatchObject({ status: "ended" });
-    const callEntries = (await w.entries()).filter((entry) => entry.author === "call");
-    expect(callEntries.map((entry) => entry.text)).toEqual([saidAsText]);
+    expect((await w.entries()).map((entry) => entry.text)).toEqual([saidAsText]);
     expect(await pages()).toEqual([]);
   });
 
