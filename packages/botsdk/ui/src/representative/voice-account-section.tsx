@@ -222,7 +222,7 @@ function GreetingRow({
       className="space-y-2"
       onSubmit={(event) => {
         event.preventDefault();
-        save.mutate({ id, channelAccountId, greeting: value });
+        if (!save.isPending) save.mutate({ id, channelAccountId, greeting: value });
       }}
     >
       <Input
@@ -237,7 +237,13 @@ function GreetingRow({
         <Button type="submit" size="sm" disabled={save.isPending}>
           {t("representative.voiceGreetingSave")}
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={save.isPending}
+          onClick={() => setEditing(false)}
+        >
           {t("representative.voiceCancel")}
         </Button>
       </div>

@@ -353,14 +353,14 @@ describe("changing the greeting", () => {
         channelAccountId: accountId,
         greeting: tooLong,
       }),
-    ).rejects.toBeDefined();
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
       client.representative.voiceAccountConnect({
         id: representativeId,
         number: "+15557654321",
         greeting: tooLong,
       }),
-    ).rejects.toBeDefined();
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await context.channelAccounts.credentialsOf(accountId, "voice")).toEqual({
       number,
       greeting: defaultVoiceGreeting,
