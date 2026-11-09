@@ -183,6 +183,19 @@ export async function topicNames(db: FeatureContext["db"], userId: string) {
   return rows.map(({ name }) => name);
 }
 
+/** The owner's topic names by how a reply on each goes, for a Call's prompt. */
+export async function topicNamesByMode(db: FeatureContext["db"], userId: string) {
+  const rows = await db
+    .select({ name: topic.name, mode: topic.mode })
+    .from(topic)
+    .where(eq(topic.userId, userId))
+    .orderBy(asc(topic.createdAt), asc(topic.id))
+    .limit(topicsPromptLimit);
+  const named = (mode: TopicMode) =>
+    rows.filter((row) => row.mode === mode).map(({ name }) => name);
+  return { auto: named("auto"), draft: named("draft") };
+}
+
 export async function exportTopics(tx: Transaction, userId: string) {
   return tx
     .select({ name: topic.name, mode: topic.mode, createdAt: topic.createdAt })
