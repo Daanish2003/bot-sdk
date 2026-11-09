@@ -16,6 +16,7 @@ import {
 } from "@botsdk/representative/react";
 import {
   callLimitSeconds,
+  type RecordedRequest,
   type ThreadMessageView,
   type ThreadSummary,
 } from "@botsdk/representative/client";
@@ -47,14 +48,45 @@ function useCallClock(startedAt: Date | undefined) {
   return startedAt ? clockOf(now - startedAt.getTime()) : "";
 }
 
+/** What a caller asked for on a Call, apart from what was said on it. */
+function CallRequests({ requests }: { requests: RecordedRequest[] }) {
+  const { t } = useI18n();
+  if (requests.length === 0) return null;
+  return (
+    <div className="space-y-1" data-call-requests="">
+      <p className="text-xs text-muted-foreground">{t("representative.threadCallRequests")}</p>
+      <ul className="space-y-1">
+        {requests.map(({ request, callback, emergency }, index) => (
+          // Requests are only ever added, so a request's place is its identity.
+          <li key={index} className="space-y-0.5">
+            <span className="block whitespace-pre-wrap break-words">
+              {emergency && (
+                <span className="font-medium text-destructive">
+                  {t("representative.threadCallRequestEmergency")}:{" "}
+                </span>
+              )}
+              {request}
+            </span>
+            {callback && (
+              <span className="block text-xs text-muted-foreground">
+                {t("representative.threadCallRequestCallback", { note: callback })}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /**
  * A Call in the thread, the verdict on #1366: its lines between a "Call started" and a "Call ended"
  * divider, which collapse to the one divider with "Show N". The closing divider says how it ended.
  */
-function CallGroup({ message }: { message: ThreadMessageView }) {
+export function CallGroup({ message }: { message: ThreadMessageView }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(true);
-  const { status, startedAt, endedAt, lines } = message.call!;
+  const { status, startedAt, endedAt, lines, requests } = message.call!;
   const minutes = Math.max(
     1,
     Math.round(((endedAt ?? startedAt).getTime() - startedAt.getTime()) / 60_000),
@@ -78,7 +110,7 @@ function CallGroup({ message }: { message: ThreadMessageView }) {
         <span>
           {open
             ? t("representative.threadCallHide")
-            : t("representative.threadCallShow", { count: lines.length })}
+            : t("representative.threadCallShow", { count: lines.length + requests.length })}
         </span>
       </button>
       {open && (
@@ -96,6 +128,7 @@ function CallGroup({ message }: { message: ThreadMessageView }) {
               </li>
             ))}
           </ol>
+          <CallRequests requests={requests} />
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
             <span aria-hidden className="h-px flex-1 bg-border" />
             <span>
@@ -113,7 +146,15 @@ function CallGroup({ message }: { message: ThreadMessageView }) {
 }
 
 /** A Call still on the line: it has no entry yet, so only its opening and a running closing divider. */
-function LiveCallGroup({ startedAt, clock }: { startedAt: Date; clock: string }) {
+function LiveCallGroup({
+  startedAt,
+  requests,
+  clock,
+}: {
+  startedAt: Date;
+  requests: RecordedRequest[];
+  clock: string;
+}) {
   const { t, locale } = useI18n();
   return (
     <li data-call-group="" data-call-live="" className="space-y-1 text-xs text-muted-foreground">
@@ -122,6 +163,7 @@ function LiveCallGroup({ startedAt, clock }: { startedAt: Date; clock: string })
           time: startedAt.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }),
         })}
       </p>
+      <CallRequests requests={requests} />
       <p>{t("representative.threadCallLive", { clock })}</p>
     </li>
   );
@@ -238,7 +280,13 @@ export function Transcript({ id }: { id: string }) {
             </li>
           ),
         )}
-        {liveCall && <LiveCallGroup startedAt={liveCall.startedAt} clock={clock} />}
+        {liveCall && (
+          <LiveCallGroup
+            startedAt={liveCall.startedAt}
+            requests={liveCall.requests}
+            clock={clock}
+          />
+        )}
       </ol>
       <ThreadActions thread={thread.data} />
     </div>

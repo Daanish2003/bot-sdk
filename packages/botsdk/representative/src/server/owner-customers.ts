@@ -641,6 +641,7 @@ export async function getThread(
       status: representativeCall.status,
       startedAt: representativeCall.startedAt,
       endedAt: representativeCall.endedAt,
+      requests: representativeCall.requests,
     })
     .from(representativeCall)
     .where(eq(representativeCall.threadId, threadId))
@@ -650,7 +651,10 @@ export async function getThread(
     const message = call.messageId === null ? undefined : byId.get(call.messageId);
     if (message) {
       const { messageId: _messageId, ...times } = call;
-      message.call = { ...times, lines: transcriptLines(message.text) };
+      // A lost Call's entry says it has no transcript and lists its requests, for a Turn to read;
+      // none of that is anything the Representative said.
+      const lines = call.status === "ended_no_transcript" ? [] : transcriptLines(message.text);
+      message.call = { ...times, lines };
     }
   }
   const live = calls.filter((call) => call.status === "in_progress").at(-1);
@@ -683,6 +687,6 @@ export async function getThread(
     identities,
     messages,
     held,
-    liveCall: live ? { startedAt: live.startedAt } : null,
+    liveCall: live ? { startedAt: live.startedAt, requests: live.requests } : null,
   };
 }

@@ -507,7 +507,41 @@ describe("what the owner sees", () => {
     expect(listed).toMatchObject({ messageCount: 0, waitingOn: null });
     const thread = await rpc.representative.threadGet({ id: await threadId() });
     expect(thread.messages).toEqual([]);
-    expect(thread.liveCall).toEqual({ startedAt: start });
+    expect(thread.liveCall).toEqual({ startedAt: start, requests: [] });
+  });
+
+  it("shows what a live Call has recorded, so an emergency's Page has something to read", async () => {
+    const { rpc, callStarts, hook, threadId } = await world();
+    await callStarts();
+    await hook("request", { callId: "call-1", request: "Gas smell", emergency: true });
+
+    const thread = await rpc.representative.threadGet({ id: await threadId() });
+
+    expect(thread.liveCall).toMatchObject({
+      requests: [{ request: "Gas smell", emergency: true }],
+    });
+  });
+
+  it("shows a finished Call's recorded requests in its group, though no Turn ran on them", async () => {
+    const { rpc, callStarts, callEnds, hook, threadId } = await world();
+    await callStarts();
+    const id = await threadId();
+    await rpc.representative.threadTakeOver({ id });
+    await hook("request", {
+      callId: "call-1",
+      request: "Book a visit",
+      callback: "after 5pm",
+      emergency: false,
+    });
+
+    await callEnds(said);
+
+    const thread = await rpc.representative.threadGet({ id });
+    expect(thread.messages.find((message) => message.call)?.call).toMatchObject({
+      status: "ended",
+      lines: said,
+      requests: [{ request: "Book a visit", callback: "after 5pm", emergency: false }],
+    });
   });
 
   it("reads an ended Call as a group of lines, with its start and end", async () => {
@@ -590,6 +624,25 @@ describe("a Call with no end", () => {
     expect(await pages()).toMatchObject([
       { userId: w.user.id, cause: "call_not_ended", urgency: "routine" },
     ]);
+  });
+
+  it("reads as no transcript, its requests apart from anything said, in the owner's view", async () => {
+    const w = await dropped();
+    await w.hook("request", {
+      callId: "call-1",
+      request: "Book a repair visit",
+      callback: "after 5pm",
+      emergency: false,
+    });
+    await w.settle(callEndDueMs + 60_000);
+
+    const thread = await w.rpc.representative.threadGet({ id: await w.threadId() });
+
+    expect(thread.messages.find((message) => message.call)?.call).toMatchObject({
+      status: "ended_no_transcript",
+      lines: [],
+      requests: [{ request: "Book a repair visit", callback: "after 5pm", emergency: false }],
+    });
   });
 
   it("carries the requests recorded before it dropped", async () => {

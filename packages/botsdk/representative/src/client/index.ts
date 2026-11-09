@@ -67,6 +67,7 @@ export {
   type TestResultView,
   type TestStatus,
   type ThreadHolder,
+  type RecordedRequest,
   type ThreadMessageView,
   type ThreadSummary,
   type ThreadView,

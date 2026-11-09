@@ -28,6 +28,7 @@ import type {
   PendingApproval,
   ProfileSource,
   ProfileStatus,
+  RecordedRequest,
   ReleaseContent,
   SpendingCaps,
   TestCheck,
@@ -868,7 +869,7 @@ export const representativeChannelAccount = botsdkSchema.table(
 export type CallStatus = "in_progress" | "ended" | "ended_no_transcript";
 
 /** What a caller wanted, as the Voice agent's one tool stored it during the Call. */
-export type RecordedRequest = { request: string; callback?: string; emergency: boolean };
+export type { RecordedRequest };
 
 /**
  * A phone call a Representative's Voice agent answered (ticket #1382, ADR 0036). `callId` is the

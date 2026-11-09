@@ -461,12 +461,18 @@ export type ThreadMessageView = {
 /** One thing said on a phone Call. */
 export type CallLine = { role: "caller" | "agent"; text: string };
 
+/** What a caller asked for, as the Voice agent recorded it against the Call. */
+export type RecordedRequest = { request: string; callback?: string; emergency: boolean };
+
 /** A `call` entry as the owner reads it: the group between its dividers (the verdict on #1366). */
 export type CallEntryView = {
   status: "in_progress" | "ended" | "ended_no_transcript";
   startedAt: Date;
   endedAt: Date | null;
+  /** What was said; none for a Call that ended with no transcript. */
   lines: CallLine[];
+  /** What the caller asked for on it, apart from what was said. */
+  requests: RecordedRequest[];
 };
 
 /** A message the Outbound gate held (ticket #1304), which the owner sends or drops. Not in the transcript. */
@@ -515,7 +521,7 @@ export type ThreadView = ThreadSummary & {
   /** What the gate has held on this thread, oldest first. */
   held: HeldMessageView[];
   /** A Call on the line now, which has no entry until it ends. */
-  liveCall: { startedAt: Date } | null;
+  liveCall: { startedAt: Date; requests: RecordedRequest[] } | null;
 };
 
 /** The longest one thread message may be, whoever wrote it. */
