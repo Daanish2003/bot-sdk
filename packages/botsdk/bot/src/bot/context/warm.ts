@@ -253,17 +253,18 @@ async function preparedCall(
     let finished: StreamChunk[];
     const abortController = new AbortController();
     const timeout = AbortSignal.timeout(warmTimeoutMs);
-    const onTimeout = () => abortController.abort(timeout.reason);
+    let onTimeout = () => {};
+    // Raced with the timeout too: a stalled Provider may never end its stream, abort or not.
+    const stopped = new Promise<never>((_, reject) => {
+      onTimeout = () => {
+        abortController.abort(timeout.reason);
+        reject(timeout.reason);
+      };
+    });
+    stopped.catch(() => {});
     timeout.addEventListener("abort", onTimeout, { once: true });
     try {
       const chunks: StreamChunk[] = [];
-      // Raced with the abort too: a stalled Provider may never end its stream, abort or not.
-      const stopped = new Promise<never>((_, reject) =>
-        abortController.signal.addEventListener("abort", () => reject(timeout.reason), {
-          once: true,
-        }),
-      );
-      stopped.catch(() => {});
       await Promise.race([
         stopped,
         (async () => {

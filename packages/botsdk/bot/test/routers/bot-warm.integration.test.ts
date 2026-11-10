@@ -789,7 +789,6 @@ describe("a warm holds no transaction across its Model call", () => {
       const real = AbortSignal.timeout.bind(AbortSignal);
       const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => real(300));
       const pool = (getTestDb() as unknown as { $client: pg.Pool }).$client;
-      const idleBefore = pool.idleCount;
 
       try {
         const warmed = await Promise.race([
@@ -803,7 +802,9 @@ describe("a warm holds no transaction across its Model call", () => {
       expect(await usageKinds(user.id)).toEqual(["turn"]);
       expect(await warmLockHeld(botId)).toBe(false);
       expect(errors.length).toBeGreaterThan(0);
-      expect(pool.idleCount).toBeGreaterThanOrEqual(idleBefore);
+      // Every connection the pool opened is back in it.
+      expect(pool.idleCount).toBe(pool.totalCount);
+      expect(pool.totalCount).toBeGreaterThan(0);
 
       fake.adapter.chatStream = play;
       expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
