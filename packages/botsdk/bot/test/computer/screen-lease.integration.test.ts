@@ -18,7 +18,7 @@ import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database"
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider, type FakeCommandRun } from "@botsdk/testing/fake-computer-provider";
 import type { CommandResult } from "../../src/computer/internal";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 const model = "openai:gpt-6-luna";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -87,6 +87,26 @@ const within = (ms: number, work: Promise<unknown>) =>
 
 const ok = { exitCode: 0, stdout: "", stderr: "" };
 
+/** A lease a crashed holder left behind, already due. */
+const insertDueLease = (userId: string, slot: number) =>
+  getTestDb()
+    .insert(job)
+    .values({
+      id: uuidv7(),
+      name: screenLeaseJob.name,
+      payload: {},
+      idempotencyKey: `screen-lease:${userId}:${slot}`,
+      runAfter: new Date(Date.now() - 1_000),
+    });
+
+const activeLeases = async () =>
+  (
+    await getTestDb()
+      .select({ id: job.id })
+      .from(job)
+      .where(and(eq(job.name, screenLeaseJob.name), inArray(job.status, ["queued", "running"])))
+  ).length;
+
 describe("a Screen's command under a small pool", () => {
   const poolMax = 4;
 
@@ -154,6 +174,22 @@ describe("one Screen's commands", () => {
 });
 
 describe("a Screen's lease", () => {
+  it("is taken over once a crashed holder's lease is due, with no runner to run it", async () => {
+    const { deps, holders } = await holdersOn([1], () => ok);
+    const [{ userId }] = holders as [(typeof holders)[number]];
+    await insertDueLease(userId, 1);
+    let held = false;
+
+    await within(
+      20_000,
+      withScreenLease(deps, userId, 1, async () => {
+        held = true;
+      }),
+    );
+
+    expect(held).toBe(true);
+  }, 30_000);
+
   it("frees the slot once a crashed holder's lease comes due, through the job that does nothing", async () => {
     const { deps, holders } = await holdersOn([1], () => ok);
     const [{ userId }] = holders as [(typeof holders)[number]];
@@ -166,15 +202,8 @@ describe("a Screen's lease", () => {
     });
     await runner.start();
     cleanups.push(() => runner.stop());
-    await getTestDb()
-      .insert(job)
-      .values({
-        id: uuidv7(),
-        name: screenLeaseJob.name,
-        payload: {},
-        idempotencyKey: `screen-lease:${userId}:1`,
-        runAfter: new Date(Date.now() - 1_000),
-      });
+    await insertDueLease(userId, 1);
+    await expect.poll(() => activeLeases(), { timeout: 10_000 }).toBe(0);
     let held = false;
 
     await within(

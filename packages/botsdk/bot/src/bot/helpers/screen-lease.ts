@@ -1,5 +1,5 @@
 import { liveDemonstrationStates } from "@botsdk/client/bot/demonstration";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, lte } from "drizzle-orm";
 import { z } from "zod";
 
 import { botDemonstration, botHelper, job } from "../../storage";
@@ -20,8 +20,8 @@ const screenLeaseJobName = "bot.screen.lease";
 
 /**
  * A Screen slot's lease: a queued job, due only once the lease has run out. The job table's unique
- * active idempotency key lets one process hold a slot, and the Executor's sweep frees a crashed
- * holder's slot: a job that comes due does nothing, and so ends, which frees the key.
+ * active idempotency key lets one process hold a slot. A crashed holder's lease is taken over by the
+ * next call that wants the slot; with none, the job comes due, does nothing, and so ends.
  */
 export const screenLeaseJob = defineCoreJob({
   name: screenLeaseJobName,
@@ -41,6 +41,7 @@ export async function withScreenLease<T>(
   act: () => Promise<T>,
 ): Promise<T> {
   const id = uuidv7();
+  const key = `screen-lease:${userId}:${slot}`;
   const until = () => new Date(deps.clock().getTime() + screenLeaseTtlMs);
   for (;;) {
     const now = deps.clock();
@@ -50,7 +51,7 @@ export async function withScreenLease<T>(
         id,
         name: screenLeaseJobName,
         payload: {},
-        idempotencyKey: `screen-lease:${userId}:${slot}`,
+        idempotencyKey: key,
         runAfter: until(),
         createdAt: now,
         updatedAt: now,
@@ -58,6 +59,14 @@ export async function withScreenLease<T>(
       .onConflictDoNothing()
       .returning({ id: job.id });
     if (taken.length > 0) break;
+    // A due lease lost its holder. Taken over here, so the slot never waits for a runner's lane.
+    const expired = await deps.db
+      .delete(job)
+      .where(
+        and(eq(job.idempotencyKey, key), eq(job.status, "queued"), lte(job.runAfter, deps.clock())),
+      )
+      .returning({ id: job.id });
+    if (expired.length > 0) continue;
     await new Promise((resolve) => setTimeout(resolve, screenLeasePollMs));
   }
   const renewal = setInterval(() => {
