@@ -718,7 +718,8 @@ const helperTriggerPrefix = helperTriggerKey("");
 /**
  * The redacted Assignments behind Turns `turnIds` and Helpers `helperIds`: those a Turn was on, and,
  * up what woke it or started it, those of the Turn that set it going. The links `assignmentsReached`
- * follows down, from a Check-in, a Helper or an Approval to the Turn that left it.
+ * follows down, from a Check-in, a Helper or an Approval to the Turn that left it. Ids taken from a
+ * Trigger's id are compared as text: that id is free text, and a Turn's end must not fail on one.
  */
 async function redactedAssignmentsBehind(
   tx: Transaction,
@@ -761,7 +762,7 @@ async function redactedAssignmentsBehind(
       ? await tx
           .select({ turnId: botCheckIn.createdByTurnId })
           .from(botCheckIn)
-          .where(inArray(botCheckIn.id, checkIns))
+          .where(inArray(sql`${botCheckIn.id}::text`, checkIns))
       : [];
     const reviews = triggers.flatMap((row) =>
       row.id.startsWith(approvalTriggerPrefix) ? [row.id.slice(approvalTriggerPrefix.length)] : [],
@@ -770,7 +771,7 @@ async function redactedAssignmentsBehind(
       ? await tx
           .select({ turnId: botReview.turnId, helperId: botReview.helperId })
           .from(botReview)
-          .where(inArray(botReview.id, reviews))
+          .where(inArray(sql`${botReview.id}::text`, reviews))
       : [];
     const reported = triggers.flatMap((row) =>
       row.id.startsWith(helperTriggerPrefix) ? [row.id.slice(helperTriggerPrefix.length)] : [],
@@ -780,7 +781,7 @@ async function redactedAssignmentsBehind(
       ? await tx
           .select({ turnId: botHelper.startedByTurnId })
           .from(botHelper)
-          .where(inArray(botHelper.id, nextHelpers))
+          .where(inArray(sql`${botHelper.id}::text`, nextHelpers))
       : [];
     turns = unseen([...setBy, ...asked, ...started].map((row) => row.turnId));
     helpers = [];

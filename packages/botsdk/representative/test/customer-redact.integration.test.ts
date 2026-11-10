@@ -1570,6 +1570,35 @@ describe("what a Check-in's Turn or a Helper does through the delete", () => {
     expect(JSON.stringify(helper)).not.toContain(adaWords);
   });
 
+  it.each([
+    ["check_in", "check_in:not-a-uuid"],
+    ["helper", "helper:not-a-uuid"],
+    ["approval", "approval:not-a-uuid"],
+  ] as const)("still ends a Turn on a %s Trigger whose id names no row", async (source, id) => {
+    const { holdCall, open } = holdable(3);
+    const owner = await withCheckIn(holdCall);
+    const attempt = owner.drain();
+    await vi.waitFor(() => expect(owner.entered).toHaveLength(3), { timeout: 10_000 });
+    const turn = await runningTurnOf(owner.botId);
+    await getTestDb().insert(botTrigger).values({
+      id,
+      botId: owner.botId,
+      conversationId: turn.conversationId,
+      source,
+      channel: "web",
+      text: "A Trigger.",
+      turnId: turn.id,
+      receivedAt: owner.timer.clock.now(),
+    });
+
+    open();
+    await attempt;
+
+    const [ended] = await getTestDb().select().from(botTurn).where(eq(botTurn.id, turn.id));
+    expect(ended!.status).toBe("complete");
+    expect(await redactionPasses()).toEqual([]);
+  });
+
   it("queues no pass for a Check-in's Turn with no delete during it", async () => {
     const owner = await withCheckIn();
     await owner.drain();
