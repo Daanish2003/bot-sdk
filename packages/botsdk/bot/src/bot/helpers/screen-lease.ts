@@ -16,10 +16,10 @@ const screenLeaseRenewMs = screenLeaseTtlMs / 3;
 /** How often a call that wants a held slot looks again. */
 const screenLeasePollMs = 100;
 /**
- * How long a call waits for a held slot before it gives up: past one Screen command's 60 s limit, so
- * only a holder that is stuck, or a queue behind it, runs it out.
+ * How long a call waits for a held slot before it gives up: past a holder that wakes the Computer
+ * and runs two 60 s Screen commands under one lease, so only a holder that is stuck runs it out.
  */
-export const screenLeaseWaitMs = 90_000;
+export const screenLeaseWaitMs = 180_000;
 
 /**
  * Why a Screen command didn't run, as the cause of its `ComputerOperationError`: another command
