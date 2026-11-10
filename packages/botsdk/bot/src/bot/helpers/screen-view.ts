@@ -17,6 +17,7 @@ import {
 import { computerOf } from "../agent-loop";
 import { helperStoppedError } from "./hand-off";
 import { openHeldScreen, ScreenHolderEndedError } from "./helper";
+import { controlHeldScreen } from "./screen-lease";
 
 /**
  * How long a live-view link opens the Screen (#597): a page and its socket must start within it,
@@ -212,7 +213,7 @@ export async function screenControl(
   mode: ScreenControl,
 ): Promise<void> {
   const { slot } = await ownedScreen(sdk, userId, { helperId });
-  await computerOf(sdk, userId).setScreenControl(slot, mode);
+  await controlHeldScreen(sdk, { id: helperId, userId, slot }, mode);
 }
 
 /** Where a proxied request goes: the Screen's noVNC, and the headers that let it through. */

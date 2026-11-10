@@ -26,7 +26,6 @@ import {
   closeScreen,
   freeScreen,
   hasLiveDemonstration,
-  lockScreen,
   openHeldScreen,
   ScreenHolderEndedError,
   screensInUseError,
@@ -226,7 +225,6 @@ async function startDemonstration(
   }
   const screen = await freeScreen(tx, turn.userId);
   if (screen === null) return { error: screensInUseError };
-  await lockScreen(tx, turn.userId, screen);
   const now = deps.clock();
   const demonstrationId = uuidv7();
   await tx.insert(botDemonstration).values({

@@ -32,7 +32,6 @@ export {
   helperQuotaSpentError,
   helperStepLimit,
   helperTimeLimitMs,
-  lockScreen,
   openHeldScreen,
   ScreenHolderEndedError,
   screensInUseError,
@@ -40,6 +39,7 @@ export {
   todoList,
   tooManyGeneralHelpersError,
 } from "./helper";
+export { screenLeaseJob, withScreenLease } from "./screen-lease";
 export { listHelpers } from "./helper-card";
 export {
   checkHelperToolName,

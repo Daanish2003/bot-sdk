@@ -1,6 +1,6 @@
 import type { ModelMessage, TextOptions } from "@tanstack/ai";
-import { asc, eq, sql } from "drizzle-orm";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { asc, eq } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { botDemonstration, botDemonstrationEvent, botHelper, botTurn } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
@@ -317,20 +317,15 @@ describe("watch_user", { timeout: 30_000 }, () => {
   });
 });
 
-/** Holds on until a close of the user's Screen 1 waits for its lock, which fails if none ever does. */
-const closeWaitsForTheLock = (userId: string) =>
-  vi.waitFor(
-    async () => {
-      const { rows } = await getTestDb().execute(sql`
-        select count(*)::int as waiting from pg_locks
-        where locktype = 'advisory' and not granted
-          and database = (select oid from pg_database where datname = current_database())
-          and (classid::bigint << 32 | objid::bigint) = hashtextextended(${`screen:${userId}:1`}, 0)
-      `);
-      expect((rows[0] as { waiting: number }).waiting).toBe(1);
-    },
-    { timeout: 5_000 },
-  );
+/** Holds on until the Bot's Demonstration is cancelled, and its close has begun to wait for the lease. */
+const closeWaitsForTheLease = async (
+  botId: string,
+  computerFake: ReturnType<typeof fakeComputerProvider>,
+) => {
+  await expect.poll(() => stateOf(botId), { timeout: 10_000 }).toBe("cancelled");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(screenCommands(computerFake)).not.toContain(`${screenScript} stop 1`);
+};
 
 describe("watch_user's Screen", { timeout: 30_000 }, () => {
   const opening = (botId: () => string) => (command: FakeCommandRun) =>
@@ -365,7 +360,7 @@ describe("watch_user's Screen", { timeout: 30_000 }, () => {
         if (!opening(() => botId)(command)) return undefined;
         const [row] = await demonstrationsOf(botId);
         cancelling = client!.demonstrations.cancel({ demonstrationId: row!.id });
-        await closeWaitsForTheLock(setup.user.id);
+        await closeWaitsForTheLease(botId, setup.computerFake);
         return undefined;
       },
     });
@@ -386,23 +381,21 @@ describe("watch_user's Screen", { timeout: 30_000 }, () => {
     ]);
   });
 
-  it("switches a reopen from a live view to control under the Screen's lock", async () => {
+  it("switches a reopen from a live view to control under the Screen's lease", async () => {
     let armed = false;
     let cancelling: Promise<unknown> | undefined;
     let demonstrationId = "";
     let client: ReturnType<typeof chatRpc> | undefined;
-    let userId = "";
     const setup = await botWith([round(watchUser(), ends()), round()], {
       onCommand: async (command) => {
         if (!armed || command.command !== `${screenScript} control 1`) return undefined;
         armed = false;
         cancelling = client!.demonstrations.cancel({ demonstrationId });
-        await closeWaitsForTheLock(userId);
+        await closeWaitsForTheLease(setup.botId, setup.computerFake);
         return undefined;
       },
     });
     ({ client } = setup);
-    userId = setup.user.id;
     await setup.send("let me show you");
     demonstrationId = (await demonstrationsOf(setup.botId))[0]!.id;
     setup.computerFake.files.delete("/tmp/screens/1/token");

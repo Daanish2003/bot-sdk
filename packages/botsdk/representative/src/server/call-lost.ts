@@ -71,6 +71,7 @@ export const callLostJob = defineJob<z.infer<typeof callLostPayload>, FeatureCon
           id: representativeCall.id,
           threadId: representativeCall.threadId,
           externalId: representativeCall.externalId,
+          identityId: representativeCall.identityId,
           userId: representative.userId,
           representativeId: representative.id,
           name: representative.name,

@@ -44,11 +44,20 @@ export type CallToEnd = {
   id: string;
   threadId: string;
   externalId: string;
+  identityId: string | null;
   userId: string;
 };
 
-/** The caller's identity at `externalId` under `userId`, if the owner knows that number. */
-async function callerAt(tx: Transaction, userId: string, externalId: string) {
+/**
+ * Who made the Call: the identity it points at, whatever that identity's address is now. Only a Call
+ * kept before that reference goes by the number, if the owner knows it.
+ */
+async function callerOf(
+  tx: Transaction,
+  userId: string,
+  identityId: string | null,
+  externalId: string,
+) {
   const [caller] = await tx
     .select({
       customerId: representativeCustomerIdentity.customerId,
@@ -56,11 +65,13 @@ async function callerAt(tx: Transaction, userId: string, externalId: string) {
     })
     .from(representativeCustomerIdentity)
     .where(
-      and(
-        eq(representativeCustomerIdentity.userId, userId),
-        eq(representativeCustomerIdentity.channel, smsChannel),
-        eq(representativeCustomerIdentity.externalId, externalId),
-      ),
+      identityId
+        ? eq(representativeCustomerIdentity.id, identityId)
+        : and(
+            eq(representativeCustomerIdentity.userId, userId),
+            eq(representativeCustomerIdentity.channel, smsChannel),
+            eq(representativeCustomerIdentity.externalId, externalId),
+          ),
     );
   return caller;
 }
@@ -89,7 +100,7 @@ export async function closeCall(
   const { threadId } = call;
   // The caller's Customer before their thread, as for a message: a delete holds it, then looks for
   // their words on every thread, and the status below finds a Call that delete has taken.
-  let caller = await callerAt(tx, call.userId, call.externalId);
+  let caller = await callerOf(tx, call.userId, call.identityId, call.externalId);
   if (caller) {
     await tx
       .select({ id: representativeCustomer.id })
@@ -109,7 +120,9 @@ export async function closeCall(
     .for("update");
   if (!held) return false;
   const { externalId, requests } = held;
-  if (externalId !== call.externalId) caller = await callerAt(tx, call.userId, externalId);
+  if (externalId !== call.externalId) {
+    caller = await callerOf(tx, call.userId, call.identityId, externalId);
+  }
   const kept = thread.blockedAt !== null || (caller?.optedOutAt ?? null) !== null;
   const messageId = uuidv7();
   await tx
@@ -173,6 +186,7 @@ async function endCall(
         id: representativeCall.id,
         threadId: representativeCall.threadId,
         externalId: representativeCall.externalId,
+        identityId: representativeCall.identityId,
         userId: representative.userId,
       })
       .from(representativeCall)

@@ -1,7 +1,7 @@
 import { liveDemonstrationStates } from "@botsdk/client/bot/demonstration";
 import { canUseComputer, providerOf } from "@botsdk/client/models/models";
 import { type ModelMessage, firstSentence, toolDefinition } from "@tanstack/ai";
-import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botDemonstration, botHelper, botHelperMessage } from "../../storage";
@@ -26,6 +26,7 @@ import {
   maxScreens,
 } from "../../computer/internal";
 import { BrowserSession, browserTools } from "./browser-tools";
+import { holdsItsScreen, withScreenLease } from "./screen-lease";
 import {
   hintChanged,
   helperOwnerOf,
@@ -260,8 +261,6 @@ export function startHelperTool(
         }
         screen = await freeScreen(tx, turn.userId);
         if (screen === null) return { error: screensInUseError };
-        // Waits out a close of the Helper that had it, so the close never lands on this one.
-        await lockScreen(tx, turn.userId, screen);
       }
       const helperId = uuidv7();
       const startedAt = deps.clock();
@@ -321,16 +320,6 @@ export async function freeScreen(tx: Transaction, userId: string): Promise<numbe
   const taken = new Set([...helpers, ...demonstrations].map((row) => row.screen));
   for (let slot = 1; slot <= maxScreens; slot += 1) if (!taken.has(slot)) return slot;
   return null;
-}
-
-/**
- * The user's Screen `slot`'s lock, until `tx` ends: `start_helper` and `watch_user` take it as they
- * hand the slot out, and `closeScreen` and `openHeldScreen` hold it while they run their command.
- */
-export async function lockScreen(tx: Transaction, userId: string, slot: number) {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${`screen:${userId}:${slot}`}, 0))`,
-  );
 }
 
 /** The Helpers and the Demonstration captures run for long: four at once, beside the rest (#602). */
@@ -447,25 +436,6 @@ async function runHelperJob(
   if (ended) await afterReport(deps, ended);
 }
 
-/** Whether the Helper or Demonstration `id` hasn't ended, so the slot it was given is still its. */
-async function holdsItsScreen(tx: Transaction, id: string): Promise<boolean> {
-  const [helper] = await tx
-    .select({ id: botHelper.id })
-    .from(botHelper)
-    .where(and(eq(botHelper.id, id), inArray(botHelper.status, ["running", "waiting"])));
-  if (helper) return true;
-  const [demonstration] = await tx
-    .select({ id: botDemonstration.id })
-    .from(botDemonstration)
-    .where(
-      and(
-        eq(botDemonstration.id, id),
-        inArray(botDemonstration.state, [...liveDemonstrationStates]),
-      ),
-    );
-  return demonstration !== undefined;
-}
-
 /** An open of a Screen for a Helper or Demonstration that ended, and only hasn't noticed yet. */
 export class ScreenHolderEndedError extends Error {
   constructor(slot: number) {
@@ -477,10 +447,10 @@ export class ScreenHolderEndedError extends Error {
 /**
  * Opens Screen `holder.slot` on `computer` with the Chrome profile `profileKey`, for the Helper or
  * Demonstration `holder.id` that was given it. An open restarts whatever is on the slot, so it runs
- * under the slot's lock, and throws `ScreenHolderEndedError` once the holder has ended. A slot is
+ * under the slot's lease, and throws `ScreenHolderEndedError` once the holder has ended. A slot is
  * only handed out once its holder ended, so a late open never replaces the Screen of whatever took
  * the slot next, nor leaves a Screen open that nothing holds, and a live holder's own open, however
- * many times it retries, goes ahead. A `control` mode is set under the same lock, for the same reason.
+ * many times it retries, goes ahead. A `control` mode is set under the same lease, for the same reason.
  */
 export async function openHeldScreen(
   deps: BotSdkContext,
@@ -490,9 +460,8 @@ export async function openHeldScreen(
   control?: ScreenControl,
 ): Promise<void> {
   const { slot } = holder;
-  await deps.db.transaction(async (tx) => {
-    await lockScreen(tx, holder.userId, slot);
-    if (!(await holdsItsScreen(tx, holder.id))) throw new ScreenHolderEndedError(slot);
+  await withScreenLease(deps, holder.userId, slot, async () => {
+    if (!(await holdsItsScreen(deps.db, holder.id))) throw new ScreenHolderEndedError(slot);
     await computer.openScreen(slot, profileKey);
     if (control) await computer.setScreenControl(slot, control);
   });
@@ -509,9 +478,9 @@ function browserSessionOf(deps: BotSdkContext, helper: HelperFacts): BrowserSess
 
 /**
  * Closes the Screen of an ending or stopped Helper, or of an ended Demonstration (spec #713, whose
- * id is `helper.id`), best-effort: its Chrome profile stays. Under the slot's lock, and only while
+ * id is `helper.id`), best-effort: its Chrome profile stays. Under the slot's lease, and only while
  * nothing else of the user's holds the slot, so it never closes the Screen of whatever took the
- * slot next.
+ * slot next: a holder given the slot after the look below still waits for the lease to open.
  */
 export async function closeScreen(
   deps: BotSdkContext,
@@ -519,39 +488,36 @@ export async function closeScreen(
 ) {
   const slot = helper.screen;
   if (slot === null) return;
-  await deps.db
-    .transaction(async (tx) => {
-      await lockScreen(tx, helper.userId, slot);
-      const [next] = await tx
-        .select({ id: botHelper.id })
-        .from(botHelper)
-        .innerJoin(bot, eq(bot.id, botHelper.botId))
-        .where(
-          and(
-            eq(bot.userId, helper.userId),
-            eq(botHelper.screen, slot),
-            inArray(botHelper.status, ["running", "waiting"]),
-            ne(botHelper.id, helper.id),
-          ),
-        )
-        .limit(1);
-      if (next) return;
-      const [demonstration] = await tx
-        .select({ id: botDemonstration.id })
-        .from(botDemonstration)
-        .where(
-          and(
-            eq(botDemonstration.userId, helper.userId),
-            eq(botDemonstration.screen, slot),
-            inArray(botDemonstration.state, [...liveDemonstrationStates]),
-            ne(botDemonstration.id, helper.id),
-          ),
-        )
-        .limit(1);
-      if (demonstration) return;
-      await computerOf(deps, helper.userId).closeScreen(slot);
-    })
-    .catch((caught) => deps.logger.error(`Closing the Screen of ${helper.id} failed`, caught));
+  await withScreenLease(deps, helper.userId, slot, async () => {
+    const [next] = await deps.db
+      .select({ id: botHelper.id })
+      .from(botHelper)
+      .innerJoin(bot, eq(bot.id, botHelper.botId))
+      .where(
+        and(
+          eq(bot.userId, helper.userId),
+          eq(botHelper.screen, slot),
+          inArray(botHelper.status, ["running", "waiting"]),
+          ne(botHelper.id, helper.id),
+        ),
+      )
+      .limit(1);
+    if (next) return;
+    const [demonstration] = await deps.db
+      .select({ id: botDemonstration.id })
+      .from(botDemonstration)
+      .where(
+        and(
+          eq(botDemonstration.userId, helper.userId),
+          eq(botDemonstration.screen, slot),
+          inArray(botDemonstration.state, [...liveDemonstrationStates]),
+          ne(botDemonstration.id, helper.id),
+        ),
+      )
+      .limit(1);
+    if (demonstration) return;
+    await computerOf(deps, helper.userId).closeScreen(slot);
+  }).catch((caught) => deps.logger.error(`Closing the Screen of ${helper.id} failed`, caught));
 }
 
 /** The Helper's model input: its task, as the only user turn. */
