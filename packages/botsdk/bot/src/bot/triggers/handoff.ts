@@ -1,8 +1,8 @@
 import { type Handoff, hopLimit } from "@botsdk/client/bot/mentions";
 import { mentionedInMessage } from "@botsdk/client/message-format";
-import { eq, max } from "drizzle-orm";
+import { and, eq, gte, isNull, max, or } from "drizzle-orm";
 
-import { bot, botTrigger } from "../../storage";
+import { bot, botAssignment, botTrigger, botTurn } from "../../storage";
 import type { BotSdkContext, Transaction } from "../../plugin";
 import { roomOf } from "../conversation";
 import {
@@ -12,6 +12,7 @@ import {
   receive,
   recordSkipChange,
 } from "./router";
+import { untrustedAssignmentChannel } from "./trigger-ids";
 
 /** The Turn a Bot's Room Message comes from. */
 type SendingTurn = { id: string; botId: string; userId: string; conversationId: string };
@@ -41,8 +42,40 @@ export async function handoffOf(
 }
 
 /**
+ * Whether Turn `turn` has touched untrusted work (#1327): it took an untrusted Assignment's Trigger
+ * or a hand-off itself from untrusted work, or its Bot held an untrusted Assignment at any point
+ * since the Turn started, one that ended before now included.
+ */
+async function touchedUntrustedWork(tx: Transaction, turn: SendingTurn): Promise<boolean> {
+  const [taken] = await tx
+    .select({ id: botTrigger.id })
+    .from(botTrigger)
+    .where(
+      and(
+        eq(botTrigger.turnId, turn.id),
+        or(eq(botTrigger.channel, untrustedAssignmentChannel), eq(botTrigger.fromUntrusted, true)),
+      ),
+    )
+    .limit(1);
+  if (taken) return true;
+  const [held] = await tx
+    .select({ id: botAssignment.id })
+    .from(botAssignment)
+    .innerJoin(botTurn, eq(botTurn.id, turn.id))
+    .where(
+      and(
+        eq(botAssignment.assignedBotId, turn.botId),
+        eq(botAssignment.assignerTrusted, false),
+        or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, botTurn.startedAt)),
+      ),
+    )
+    .limit(1);
+  return held !== undefined;
+}
+
+/**
  * Hands Message `messageId` on to each Bot its `handoff` names, in `tx`, as an `agent` Trigger
- * carrying the Message. It never interrupts: a Bot running a Turn in the Room takes it in its next
+ * carrying the Message, stamped with whether its Turn touched untrusted work. It never interrupts: a Bot running a Turn in the Room takes it in its next
  * one. A hop past `hopLimit` is kept as skipped `hop_limit` and never runs. As a Check-in's fire
  * does, it wakes no Bot whose Model the user can't use, or once their Quota is spent. `tx` holds
  * the locks `lockHandoff` takes. Returns the Bots whose Room Turn it started, whose 1:1 threads the
@@ -57,6 +90,7 @@ export async function handOff(
 ): Promise<BotConversation[]> {
   const started: BotConversation[] = [];
   const now = deps.clock();
+  const fromUntrusted = await touchedUntrustedWork(tx, turn);
   for (const botId of handoff.to) {
     const trigger = {
       id: messageId,
@@ -67,6 +101,7 @@ export async function handOff(
       messageId,
       receivedAt: now,
       hops: handoff.hops,
+      fromUntrusted,
     };
     if (handoff.hops > hopLimit) {
       await tx.insert(botTrigger).values({ ...trigger, skippedAt: now, skipReason: "hop_limit" });
