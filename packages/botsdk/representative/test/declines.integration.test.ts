@@ -266,7 +266,12 @@ describe("declineReason and the text inbound path", () => {
     const [told] = await getTestDb()
       .select({ n: count() })
       .from(representativeOutboundDecision)
-      .where(eq(representativeOutboundDecision.kind, "unavailable_notice"));
+      .where(
+        and(
+          eq(representativeOutboundDecision.threadId, await world.threadOf()),
+          eq(representativeOutboundDecision.kind, "unavailable_notice"),
+        ),
+      );
     const served = received?.jobId != null && told!.n === 0;
 
     expect(asked).toBe(reason);
