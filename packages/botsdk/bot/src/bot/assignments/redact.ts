@@ -1,6 +1,6 @@
 import { isEndedAssignment } from "@botsdk/client/bot/assignment";
 import type { ModelMessage } from "@tanstack/ai";
-import { and, eq, gte, inArray, isNotNull, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lte, min, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import type { BotSdkContext, Transaction } from "../../plugin";
@@ -381,7 +381,16 @@ function redactedInput(input: ModelMessage[], ids: string[], copies: string[]): 
   return input.map((entry) => ({ ...entry, content: cleanContent(entry.content, clean) }));
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** `value` with its objects' keys in one order: jsonb doesn't keep the order they were written in. */
+const inKeyOrder = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(inKeyOrder);
+  if (value === null || typeof value !== "object") return value;
+  const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return Object.fromEntries(entries.map(([key, each]) => [key, inKeyOrder(each)]));
+};
+
+const same = (a: unknown, b: unknown) =>
+  JSON.stringify(inKeyOrder(a)) === JSON.stringify(inKeyOrder(b));
 
 /**
  * Redacts Assignments `ids` of user `userId`, and what they reach (see above), in `tx`, taking the
@@ -715,11 +724,18 @@ export const assignmentRedactionJob = defineCoreJob({
 const approvalTriggerPrefix = approvalTriggerId("");
 const helperTriggerPrefix = helperTriggerKey("");
 
+const isUuid = (id: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
 /**
  * The redacted Assignments behind Turns `turnIds` and Helpers `helperIds`: those a Turn was on, and,
  * up what woke it or started it, those of the Turn that set it going. The links `assignmentsReached`
- * follows down, from a Check-in, a Helper or an Approval to the Turn that left it. Ids taken from a
- * Trigger's id are compared as text: that id is free text, and a Turn's end must not fail on one.
+ * follows down, from a Check-in, a Helper or an Approval to the Turn that left it. An Assignment found
+ * up those links counts only if the Turn nearest the start began by its redaction: that Turn could hold
+ * the words, and what a Turn begun after it set going can't, so a chain of Check-ins stops queueing.
+ * An Assignment's `updatedAt` is when it was redacted, as a redacted one has ended and no longer changes.
+ * A Check-in, Helper or Approval Trigger's id is free text: only what looks like a uuid is looked up, so a
+ * Turn's end can't fail on one.
  */
 async function redactedAssignmentsBehind(
   tx: Transaction,
@@ -735,6 +751,7 @@ async function redactedAssignmentsBehind(
     });
   let turns = unseen(start.turnIds ?? []);
   let helpers = unseen(start.helperIds ?? []);
+  let nearestBegan: Date | null = null;
   while (turns.length > 0 || helpers.length > 0) {
     const triggers = turns.length
       ? await tx
@@ -747,44 +764,54 @@ async function redactedAssignmentsBehind(
       .map((row) => row.id.split(":")[1]!);
     if (worked.length > 0) {
       const redacted = await tx
-        .select({ id: botAssignment.id })
+        .select({ id: botAssignment.id, updatedAt: botAssignment.updatedAt })
         .from(botAssignment)
-        .where(
-          and(
-            inArray(sql`${botAssignment.id}::text`, worked),
-            eq(botAssignment.title, redactedText),
-          ),
-        );
-      for (const row of redacted) found.add(row.id);
+        .where(and(inArray(botAssignment.id, worked), eq(botAssignment.title, redactedText)));
+      for (const row of redacted) {
+        if (!nearestBegan || nearestBegan <= row.updatedAt) found.add(row.id);
+      }
     }
-    const checkIns = triggers.flatMap((row) => checkInOfKey(row.id) ?? []);
+    const checkIns = triggers.flatMap((row) => checkInOfKey(row.id) ?? []).filter(isUuid);
     const setBy = checkIns.length
       ? await tx
           .select({ turnId: botCheckIn.createdByTurnId })
           .from(botCheckIn)
-          .where(inArray(sql`${botCheckIn.id}::text`, checkIns))
+          .where(inArray(botCheckIn.id, checkIns))
       : [];
-    const reviews = triggers.flatMap((row) =>
-      row.id.startsWith(approvalTriggerPrefix) ? [row.id.slice(approvalTriggerPrefix.length)] : [],
-    );
+    const reviews = triggers
+      .flatMap((row) =>
+        row.id.startsWith(approvalTriggerPrefix)
+          ? [row.id.slice(approvalTriggerPrefix.length)]
+          : [],
+      )
+      .filter(isUuid);
     const asked = reviews.length
       ? await tx
           .select({ turnId: botReview.turnId, helperId: botReview.helperId })
           .from(botReview)
-          .where(inArray(sql`${botReview.id}::text`, reviews))
+          .where(inArray(botReview.id, reviews))
       : [];
-    const reported = triggers.flatMap((row) =>
-      row.id.startsWith(helperTriggerPrefix) ? [row.id.slice(helperTriggerPrefix.length)] : [],
-    );
+    const reported = triggers
+      .flatMap((row) =>
+        row.id.startsWith(helperTriggerPrefix) ? [row.id.slice(helperTriggerPrefix.length)] : [],
+      )
+      .filter(isUuid);
     const nextHelpers = [...helpers, ...unseen([...reported, ...asked.map((row) => row.helperId)])];
     const started = nextHelpers.length
       ? await tx
           .select({ turnId: botHelper.startedByTurnId })
           .from(botHelper)
-          .where(inArray(sql`${botHelper.id}::text`, nextHelpers))
+          .where(inArray(botHelper.id, nextHelpers))
       : [];
     turns = unseen([...setBy, ...asked, ...started].map((row) => row.turnId));
     helpers = [];
+    if (!nearestBegan && turns.length > 0) {
+      const [oldest] = await tx
+        .select({ began: min(botTurn.startedAt) })
+        .from(botTurn)
+        .where(inArray(botTurn.id, turns));
+      nearestBegan = oldest?.began ?? null;
+    }
   }
   return [...found];
 }
