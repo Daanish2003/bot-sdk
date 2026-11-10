@@ -91,7 +91,7 @@ describe("the owner's inbox lists", () => {
   it("says so when it is the Pages", async () => {
     showing([heldOn("caps")], { held: false, drafts: false, running: false }, true);
 
-    expect(await screen.findByText(/more than this list shows/)).toBeTruthy();
+    expect(await screen.findByText(/more Pages than this list shows/)).toBeTruthy();
   });
 
   it("says when it can't show every running thread", async () => {

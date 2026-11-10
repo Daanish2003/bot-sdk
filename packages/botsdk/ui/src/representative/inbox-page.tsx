@@ -267,11 +267,14 @@ export function InboxPage() {
               ))}
             </ul>
           )}
-          {(inbox.data?.truncated.held ||
-            inbox.data?.truncated.drafts ||
-            pages.list.data?.truncated) && (
+          {(inbox.data?.truncated.held || inbox.data?.truncated.drafts) && (
             <p className="text-xs text-muted-foreground">
               {t("representative.inbox.queueTruncated")}
+            </p>
+          )}
+          {pages.list.data?.truncated && (
+            <p className="text-xs text-muted-foreground">
+              {t("representative.inbox.pagesTruncated")}
             </p>
           )}
         </div>
