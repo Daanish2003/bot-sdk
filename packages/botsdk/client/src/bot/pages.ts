@@ -20,3 +20,6 @@ export type PageRow = {
 
 /** Names one of the user's Pages. */
 export const pageIdInput = z.object({ id: z.uuid() });
+
+/** What `pages.list` returns: the Pages shown, and whether more waited than it shows. */
+export type PagesList = { pages: PageRow[]; truncated: boolean };

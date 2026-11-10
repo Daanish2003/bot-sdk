@@ -185,7 +185,7 @@ export function InboxPage() {
   const representatives = useRepresentatives();
   const [chosen, setChosen] = useState<string | null>(null);
 
-  const pageItems = (pages.list.data ?? []).map((page): Item => ({
+  const pageItems = (pages.list.data?.pages ?? []).map((page): Item => ({
     key: `page:${page.id}`,
     kind: "page",
     page,
@@ -267,7 +267,9 @@ export function InboxPage() {
               ))}
             </ul>
           )}
-          {(inbox.data?.truncated.held || inbox.data?.truncated.drafts) && (
+          {(inbox.data?.truncated.held ||
+            inbox.data?.truncated.drafts ||
+            pages.list.data?.truncated) && (
             <p className="text-xs text-muted-foreground">
               {t("representative.inbox.queueTruncated")}
             </p>
