@@ -57,6 +57,10 @@ function ownCounters(): CounterStore {
       window.count++;
       return { count: window.count, resetMs: window.expiresAt - now };
     },
+    async reset(key, windowMs) {
+      windows.delete(key);
+      if (windowMs !== undefined) windows.set(key, { count: 1, expiresAt: Date.now() + windowMs });
+    },
   };
 }
 

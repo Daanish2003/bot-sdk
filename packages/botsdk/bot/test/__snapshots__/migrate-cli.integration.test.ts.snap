@@ -716,6 +716,13 @@ ALTER TABLE "botsdk"."channel_account" ALTER COLUMN "bot_id" DROP NOT NULL;
 insert into botsdk.__migrations (feature, migration) values ('core', '20261105120135_channel_account_optional_bot');
 commit;
 
+-- core/20261110011610_trigger_from_untrusted
+begin;
+ALTER TABLE "botsdk"."bot_trigger" ADD COLUMN "from_untrusted" boolean DEFAULT false NOT NULL;
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261110011610_trigger_from_untrusted');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

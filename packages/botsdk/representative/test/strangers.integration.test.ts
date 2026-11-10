@@ -61,7 +61,10 @@ afterEach(async () => {
  * A running instance with listeners over the fake platform, and a Model that says `says` in turn.
  * With `webhook`, the platform posts to each account's webhook route instead (ticket #1355).
  */
-async function world(says: string[] = [], { webhook = false }: { webhook?: boolean } = {}) {
+async function world(
+  says: string[] = [],
+  { webhook = false, logger }: { webhook?: boolean; logger?: Pick<Console, "error"> } = {},
+) {
   const ban = { on: false };
   const channel = fakeMessagingAdapter({ webhook });
   const fake = createFakeAdapter({ rounds: says.flatMap((text) => [replies(text), round()]) });
@@ -82,6 +85,7 @@ async function world(says: string[] = [], { webhook = false }: { webhook?: boole
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
     memory: false,
+    ...(logger && { logger }),
   });
   made = deps;
   await jobs.start();
@@ -219,6 +223,190 @@ describe("a stranger on a Representative's account", () => {
       .toEqual([["1001", "Hello there."]]);
     expect((await messages()).filter(({ text }) => text === "Hi")).toHaveLength(1);
     expect(await identities()).toEqual([{ channel: "fake", externalId: "1001" }]);
+  });
+
+  /** A webhook world whose feature's `onStranger` throws on a message whose text is in `failing`. */
+  async function failingWebhook(logger?: Pick<Console, "error">) {
+    const made = await world([], { webhook: true, logger });
+    await made.representativeOn("1:a");
+    const [account] = await getTestDb()
+      .select({ id: channelAccount.id })
+      .from(channelAccount)
+      .where(eq(channelAccount.platformBotId, "1"));
+    const held = made.deps.parts.features.find(
+      ({ feature }) => feature.id === "representative",
+    )!.feature;
+    const onStranger = held.onStranger!;
+    const failing = new Set<string>();
+    let gate: Promise<void> | null = null;
+    held.onStranger = async (message, context) => {
+      const waiting = gate;
+      gate = null;
+      await waiting;
+      if (failing.has(message.text)) throw new Error("the database went away");
+      await onStranger(message, context);
+    };
+    /** Makes the next store wait until the returned function is called. */
+    const holdNext = () => {
+      let release!: () => void;
+      gate = new Promise((resolve) => (release = resolve));
+      return release;
+    };
+    type Updates = Parameters<typeof made.channel.webhookRequest>[2];
+    const request = (updates: Updates) =>
+      made.channel.webhookRequest(
+        `https://host.example/api/chat/channels/fake/${account!.id}`,
+        "1:a",
+        updates,
+      );
+    const chat = createTestChat({ deps: made.deps });
+    const post = (updates: Updates) => chat.fetch(request(updates));
+    /** Posts through a handler of its own: another instance, with its own in-process dedupe. */
+    const postElsewhere = (updates: Updates) =>
+      createTestChat({ deps: made.deps }).fetch(request(updates));
+    const customerTexts = async () =>
+      (await messages()).filter(({ author }) => author === "customer").map(({ text }) => text);
+    return { ...made, failing, holdNext, post, postElsewhere, customerTexts };
+  }
+
+  const pastTheHold = () => new Promise((resolve) => setTimeout(resolve, 10_500));
+
+  it("keeps an update's id through a store slower than its hold, so copies aren't stored twice (#1363)", async () => {
+    const { holdNext, post, postElsewhere, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "90", text: "Slow" }];
+
+    const release = holdNext();
+    const first = post(update);
+    await pastTheHold();
+    const copies = await Promise.all([postElsewhere(update), postElsewhere(update)]);
+    expect(copies.map(({ status }) => status)).toEqual([503, 503]);
+
+    release();
+    expect((await first).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Slow"]);
+
+    // Nothing renews the id once it is settled: a resend later still finds it done.
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    expect((await postElsewhere(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Slow"]);
+  });
+
+  it("lets go of the id when a store slower than its hold fails, so the retry is stored (#1363)", async () => {
+    const { failing, holdNext, post, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "91", text: "Slow failure" }];
+
+    const release = holdNext();
+    failing.add("Slow failure");
+    const first = post(update);
+    await pastTheHold();
+    release();
+    expect((await first).status).toBe(503);
+
+    failing.clear();
+    expect((await post(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Slow failure"]);
+  });
+
+  it("stops renewing a store that hangs, so a retry can still store the update (#1363)", async () => {
+    let shift = 0;
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + shift);
+    try {
+      const { holdNext, post, postElsewhere, customerTexts } = await failingWebhook();
+      const update = [{ sourceId: "97", text: "Hung" }];
+
+      const release = holdNext();
+      const first = post(update);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Past the most a store may hold its id; then long enough for a renewal's turn to come round.
+      shift = 31_000;
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+
+      expect((await postElsewhere(update)).status).toBe(202);
+      expect(await customerTexts()).toEqual(["Hung"]);
+      release();
+      await first;
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("logs which fields kept an unstorable update out, without its text or address (#1363)", async () => {
+    const logged: string[] = [];
+    const { post, customerTexts } = await failingWebhook({
+      error: (...args: unknown[]) => logged.push(args.map(String).join(" ")),
+    });
+    const address = "1".repeat(600);
+
+    const response = await post([
+      { sourceId: "98", text: "Private words", sender: { id: address, handle: "@long" } },
+    ]);
+
+    expect(response.status).toBe(202);
+    expect(await customerTexts()).toEqual([]);
+    const line = logged.find((entry) => entry.includes("can't be stored"));
+    expect(line).toContain("externalId");
+    expect(line).not.toContain("Private words");
+    expect(line).not.toContain(address);
+  });
+
+  it("drops an update that can never be stored, and still answers 202 for the rest (#1363)", async () => {
+    const { post, customerTexts } = await failingWebhook();
+    const updates = [
+      // Past what an identity can hold, however often it is sent.
+      { sourceId: "95", text: "Never", sender: { id: "1".repeat(600), handle: "@long" } },
+      { sourceId: "96", text: "Good" },
+    ];
+
+    expect((await post(updates)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Good"]);
+    expect((await post(updates)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Good"]);
+  });
+
+  it("answers 503 when a held account's update can't be stored, and stores its retry once (#1363)", async () => {
+    const { failing, post, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "50", text: "Hello" }];
+
+    failing.add("Hello");
+    expect((await post(update)).status).toBe(503);
+    expect(await customerTexts()).toEqual([]);
+
+    failing.clear();
+    expect((await post(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Hello"]);
+
+    expect((await post(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Hello"]);
+  });
+
+  it("stores each update of a held account's request exactly once after a retry (#1363)", async () => {
+    const { failing, post, customerTexts } = await failingWebhook();
+    const updates = [
+      { sourceId: "60", text: "one" },
+      { sourceId: "61", text: "two" },
+      { sourceId: "62", text: "three" },
+    ];
+
+    failing.add("two");
+    expect((await post(updates)).status).toBe(503);
+    expect(await customerTexts()).toEqual(["one", "three"]);
+
+    failing.clear();
+    expect((await post(updates)).status).toBe(202);
+    expect((await customerTexts()).sort()).toEqual(["one", "three", "two"]);
+  });
+
+  it("stores a held account's two copies posted at once exactly once (#1363)", async () => {
+    const { post, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "70", text: "Only one" }];
+
+    const statuses = (await Promise.all([post(update), post(update)])).map(({ status }) => status);
+
+    expect(statuses.filter((status) => status === 202)).toHaveLength(1);
+    expect(await customerTexts()).toEqual(["Only one"]);
+    await expect.poll(async () => (await post(update)).status, poll).toBe(202);
+    expect(await customerTexts()).toEqual(["Only one"]);
   });
 
   it("becomes a Customer, a Turn runs, and the gate's reply goes out through that account", async () => {

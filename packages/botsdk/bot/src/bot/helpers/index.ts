@@ -7,7 +7,7 @@ export {
   unreadPageNote,
 } from "./browser-tools";
 export { noVisionError } from "./computer-use-tool";
-export { askUserTool, askUserToolName, handOffAnswers, helperDone } from "./hand-off";
+export { askUserTool, askUserToolName, handOff, handOffAnswers, helperDone } from "./hand-off";
 export {
   botHelperJob,
   helperStoppedJob,
@@ -32,7 +32,6 @@ export {
   helperQuotaSpentError,
   helperStepLimit,
   helperTimeLimitMs,
-  lockScreen,
   openHeldScreen,
   ScreenHolderEndedError,
   screensInUseError,
@@ -40,6 +39,12 @@ export {
   todoList,
   tooManyGeneralHelpersError,
 } from "./helper";
+export {
+  ScreenBusyError,
+  screenLeaseJob,
+  screenLeaseWaitMs,
+  withScreenLease,
+} from "./screen-lease";
 export { listHelpers } from "./helper-card";
 export {
   checkHelperToolName,

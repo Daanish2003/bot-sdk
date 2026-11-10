@@ -5,7 +5,7 @@ import { representativeChannelAccount } from "./db/schema";
 import { maxThreadMessageLength } from "../shared/contract";
 import type { ChannelProof } from "./verification";
 import { smsChannel } from "./customer-proof";
-import { receiveCustomerMessage } from "./thread-turns";
+import { customerMessage, receiveCustomerMessage } from "./thread-turns";
 
 /*
  * Everyone who writes to a Channel account a Representative holds is a Customer (ticket #1334, ADR
@@ -43,12 +43,23 @@ export async function receiveStranger(
     .where(eq(representativeChannelAccount.channelAccountId, message.account.id));
   const text = textOf(message);
   if (!held || !text) return;
-  await receiveCustomerMessage(services, {
+  const given = {
     representativeId: held.representativeId,
     channel: message.channel,
     externalId: message.sender.id,
     channelAccountId: message.account.id,
     proof: proofOf(message),
     message: text,
-  });
+  };
+  // It can never be stored, so it is dropped here: a throw would have the platform send it again.
+  const parsed = customerMessage.safeParse(given);
+  if (!parsed.success) {
+    // Which fields and why, never their values: those are the message and the sender's address.
+    const issues = parsed.error.issues.map(({ path, code }) => `${path.join(".")}: ${code}`);
+    services.logger.error(
+      `A ${message.channel} message that can't be stored was dropped (${issues.join(", ")})`,
+    );
+    return;
+  }
+  await receiveCustomerMessage(services, given);
 }

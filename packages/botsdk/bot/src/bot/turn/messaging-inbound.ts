@@ -33,13 +33,13 @@ const recentLimit = 1_000;
  * them when the platform resends them. Only the process that holds an account's listener sees its
  * updates (spec #1044), and a listener restarts in-process, so memory is enough.
  */
-const recentBySdk = new WeakMap<BotSdkContext, Map<string, Set<string>>>();
+const recentBySdk = new WeakMap<BotSdkContext, Map<string, Map<string, Promise<void>>>>();
 
-function recentOf(sdk: BotSdkContext, accountId: string): Set<string> {
+function recentOf(sdk: BotSdkContext, accountId: string): Map<string, Promise<void>> {
   let accounts = recentBySdk.get(sdk);
   if (!accounts) recentBySdk.set(sdk, (accounts = new Map()));
   let recent = accounts.get(accountId);
-  if (!recent) accounts.set(accountId, (recent = new Set()));
+  if (!recent) accounts.set(accountId, (recent = new Map()));
   return recent;
 }
 
@@ -52,7 +52,10 @@ function recentOf(sdk: BotSdkContext, accountId: string): Set<string> {
  * so by a system notice, a message from the Bot's user's Linked identity, in a private chat, wakes
  * the Bot (#1047), and any other update is dropped silently. A resent update (its `sourceId` seen
  * lately) acts no more.
- * `appUrl` is the Host's app, for the links its notices carry.
+ * `appUrl` is the Host's app, for the links its notices carry. A feature's `onStranger` that throws
+ * is logged and its update dropped, except `via` a webhook route (#1363), whose answer says whether
+ * the update is stored: there it rejects like any other that couldn't be stored, and a copy of an
+ * update still being taken waits for how that ends, so the platform sends it again if it failed.
  */
 export async function receiveMessaging(
   sdk: BotSdkContext,
@@ -61,18 +64,22 @@ export async function receiveMessaging(
   update: MessagingUpdate,
   appUrl: string | null,
   onRejected: (reason: string) => Promise<void>,
+  via: "listener" | "webhook" = "listener",
 ): Promise<void> {
   const recent = recentOf(sdk, account.id);
-  if (recent.has(update.sourceId)) {
+  const taken = recent.get(update.sourceId);
+  if (taken) {
     sdk.logger.debug?.(`A ${account.platform} update was dropped: it is a resent update`);
+    if (via === "webhook") await taken;
     return;
   }
-  // Remembered before it is taken, so a copy delivered meanwhile is dropped; forgotten when it
-  // throws, as it is read again and must act then.
-  recent.add(update.sourceId);
-  if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
+  // Remembered as it is taken, so a copy delivered meanwhile is dropped; forgotten when it throws,
+  // as it is read again and must act then.
+  const taking = receiveOnce(sdk, adapter, account, withoutNul(update), appUrl, onRejected, via);
+  recent.set(update.sourceId, taking);
+  if (recent.size > recentLimit) recent.delete(recent.keys().next().value!);
   try {
-    await receiveOnce(sdk, adapter, account, withoutNul(update), appUrl, onRejected);
+    await taking;
   } catch (error) {
     recent.delete(update.sourceId);
     throw error;
@@ -86,6 +93,7 @@ async function receiveOnce(
   update: MessagingUpdate,
   appUrl: string | null,
   onRejected: (reason: string) => Promise<void>,
+  via: "listener" | "webhook",
 ): Promise<void> {
   // Called on the logger, so a class-based one keeps its `this`. Never the text.
   const drop = (reason: string) =>
@@ -107,6 +115,7 @@ async function receiveOnce(
         holder.context,
       );
     } catch (error) {
+      if (via === "webhook") throw error;
       sdk.logger.error(`A ${account.platform} update on a held account was dropped`, error);
     }
     return;

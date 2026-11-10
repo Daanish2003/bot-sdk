@@ -889,7 +889,13 @@ export const representativeCall = botsdkSchema.table(
     channelAccountId: uuid("channel_account_id").references((): AnyPgColumn => channelAccount.id, {
       onDelete: "set null",
     }),
+    /** The number the inbound limit counts. Whose Call it is, the identity reference says. */
     externalId: text("external_id").notNull(),
+    /** The identity the Call was made from: follows merges and corrections with no row copied. Null only for a Call kept before this reference whose number no SMS identity held. */
+    identityId: uuid("identity_id").references(
+      (): AnyPgColumn => representativeCustomerIdentity.id,
+      { onDelete: "cascade" },
+    ),
     startedAt: timestamp("started_at").notNull(),
     endedAt: timestamp("ended_at"),
     messageId: uuid("message_id"),
@@ -899,5 +905,6 @@ export const representativeCall = botsdkSchema.table(
   (table) => [
     unique("representative_call_call_id").on(table.channelAccountId, table.callId),
     index("representative_call_thread_idx").on(table.threadId),
+    index("representative_call_identity_idx").on(table.identityId),
   ],
 );

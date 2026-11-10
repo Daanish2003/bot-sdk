@@ -19,7 +19,7 @@ import {
   pushEndpointInput,
   pushSubscriptionSchema,
 } from "./notifications";
-import { pageIdInput, type PageRow } from "./pages";
+import { pageIdInput, type PagesList } from "./pages";
 import { emojiSchema } from "./reaction";
 import type { BotReview, ReviewApprovalState } from "./review";
 import { type BotRoutine, routineScheduleSchema } from "./routine";
@@ -534,8 +534,11 @@ const notifications = {
  * acknowledged.
  */
 const pages = {
-  /** The Pages the user hasn't acknowledged, newest first. */
-  list: oc.output(type<PageRow[]>()),
+  /**
+   * The Pages the user hasn't acknowledged, at most 50: emergencies first, each newest first.
+   * `truncated` is true when there were more.
+   */
+  list: oc.output(type<PagesList>()),
   /** Acknowledges the user's Page, which stops whatever it hasn't sent yet. */
   acknowledge: oc.input(pageIdInput).output(type<void>()),
 };

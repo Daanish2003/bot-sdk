@@ -22,12 +22,12 @@ const stalled: PageRow = {
 };
 
 /** A stand-in for the server's `pages` procedures, recording what is acknowledged. */
-function fakePagesServer(initial: PageRow[]) {
+function fakePagesServer(initial: PageRow[], truncated = false) {
   let pages = initial;
   const acknowledged: string[] = [];
   const handler = new RPCHandler({
     pages: {
-      list: os.handler(() => pages),
+      list: os.handler(() => ({ pages, truncated })),
       acknowledge: os.input(pageIdInput).handler(({ input }) => {
         acknowledged.push(input.id);
         pages = pages.filter((page) => page.id !== input.id);
@@ -71,6 +71,16 @@ describe("PagesSection", () => {
     show(fakePagesServer([{ ...stalled, urgency: "emergency" }]));
 
     expect(await screen.findByText("Emergency")).toBeTruthy();
+  });
+
+  it("says the list is cut off only when it is", async () => {
+    show(fakePagesServer([stalled], true));
+    expect(await screen.findByText(/more Pages than this list shows/)).toBeTruthy();
+    cleanup();
+
+    show(fakePagesServer([stalled], false));
+    await screen.findByText(stalled.title);
+    expect(screen.queryByText(/more Pages than this list shows/)).toBeNull();
   });
 
   it("renders nothing with no Page waiting", async () => {

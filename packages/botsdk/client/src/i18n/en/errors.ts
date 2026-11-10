@@ -111,6 +111,7 @@ export const errorMessages = {
   "error.helperNotFound": "Helper not found",
   "error.reviewNotFound": "Request not found",
   "error.helperStopped": "This task was stopped.",
+  "error.screenBusy": "This Screen is busy. Try again in a moment.",
   "error.assignmentBotCantWork": "This Bot can't work right now.",
   "error.assignmentChainTooDeep": ({ limit }: { limit: number }) =>
     `A chain of Assignments stops at ${limit} deep.`,

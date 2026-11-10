@@ -146,7 +146,8 @@ async function serving(
       timer.advance(ms);
       await drain();
     },
-    pages: async (cause: string) => (await rpc.pages.list()).filter((page) => page.cause === cause),
+    pages: async (cause: string) =>
+      (await rpc.pages.list()).pages.filter((page) => page.cause === cause),
     notes: async () => (await thread()).messages.filter((message) => message.text === stallNote),
     assignment: async () => {
       const [row] = await getTestDb().select().from(botAssignment);

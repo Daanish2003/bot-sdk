@@ -1,7 +1,8 @@
-import { eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { controlParts } from "@botsdk/bot/bot/conversation";
+import { handOff, stopBotHelpers } from "@botsdk/bot/bot/helpers";
 import { recordReviewOutput } from "@botsdk/bot/bot/safety";
 import { batchLongestMs } from "@botsdk/bot/bot/triggers";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
@@ -102,12 +103,15 @@ async function serving({
   turnRounds,
   botRounds,
   held,
+  holdCall,
   onTurnCall,
   onCommand,
 }: {
   turnRounds: Rounds;
   botRounds: Rounds;
   held?: Promise<void>;
+  /** Holds the Bot's Model call number `call` (from 1) until what it returns resolves. */
+  holdCall?: (call: number) => Promise<void> | undefined;
   /** Runs before each of a Representative's Model calls, when its Turn holds nothing. */
   onTurnCall?: () => Promise<void>;
   onCommand?: NonNullable<Parameters<typeof fakeComputerProvider>[0]>["onCommand"];
@@ -127,6 +131,7 @@ async function serving({
     chatStream: async function* (options) {
       entered.push(options);
       await held;
+      await holdCall?.(entered.length);
       yield* botFake.adapter.chatStream(options);
     },
   };
@@ -1317,6 +1322,378 @@ describe("an open Approval when a Customer is deleted", () => {
     expect(await owner.rpc.reviews.allow({ reviewId: id })).toMatchObject({ decided: true });
     await owner.drain();
     expect(runCommands(owner)).toEqual([command]);
+  });
+});
+
+describe("what a Check-in's Turn or a Helper does through the delete", () => {
+  const command = `echo 12 ${adaWords}`;
+  const hour = 60 * 60 * 1000;
+
+  const redactionPasses = () =>
+    getTestDb().select({ id: job.id }).from(job).where(eq(job.name, "bot.assignment_redaction"));
+
+  /** A held Model call, and what lets it go. */
+  function holdable(at: number) {
+    let open = () => {};
+    const held = new Promise<void>((resolve) => (open = resolve));
+    return { holdCall: (call: number) => (call === at ? held : undefined), open };
+  }
+
+  /** A pending Approval, asked for now by `source`. */
+  async function asksApproval(
+    owner: Awaited<ReturnType<typeof serving>>,
+    source: { turnId: string } | { helperId: string },
+  ) {
+    const now = owner.timer.clock.now();
+    const id = uuidv7();
+    await getTestDb()
+      .insert(botReview)
+      .values({
+        id,
+        botId: owner.botId,
+        ...source,
+        toolCallId: `call-${id}`,
+        tool: "shell",
+        input: { command },
+        summary: `Writes to ${adaWords}`,
+        verdict: "block",
+        reason: `Nobody asked to write to ${adaWords}`,
+        state: "pending",
+        deadline: new Date(now.getTime() + 15_000),
+        expiresAt: new Date(now.getTime() + 7 * 24 * hour),
+        createdAt: now,
+      });
+    return id;
+  }
+
+  const reviewOf = async (id: string) =>
+    (await getTestDb().select().from(botReview).where(eq(botReview.id, id)))[0]!;
+
+  const expectDeniedForGood = async (owner: Awaited<ReturnType<typeof serving>>, id: string) => {
+    const review = await reviewOf(id);
+    expect(review.state).toBe("denied");
+    expect(review.input).toEqual({});
+    expect(JSON.stringify(review)).not.toContain(adaWords);
+    expect(await owner.rpc.reviews.allow({ reviewId: id })).toMatchObject({
+      decided: false,
+      state: "denied",
+    });
+    await owner.drain();
+    expect(owner.computerFake.callsOf("run").map((call) => call.command)).toEqual([]);
+  };
+
+  /** Ada's Turn sets a Check-in an hour ahead; call 3 of the Bot's Model is the Check-in's Turn. */
+  async function withCheckIn(holdCall?: (call: number) => Promise<void> | undefined) {
+    const made: { at: Date } = { at: new Date(0) };
+    const owner = await serving({
+      turnRounds: [adaHandsOff, quiet],
+      botRounds: [
+        () =>
+          round(
+            toolCall({
+              name: "set_check_in",
+              input: { at: made.at.toISOString(), note: `Call 12 ${adaWords} again.` },
+            }),
+          ),
+        quiet,
+        says(`Called 12 ${adaWords}.`),
+      ],
+      holdCall,
+    });
+    made.at = new Date(owner.timer.clock.now().getTime() + hour);
+    await owner.say("I'd like a refund.", adaNumber);
+    owner.timer.advance(hour);
+    return owner;
+  }
+
+  /** Ada's Turn starts a Helper; call 3 of the Bot's Model is the Helper's. */
+  async function withHelper(holdCall?: (call: number) => Promise<void> | undefined) {
+    const owner = await serving({
+      turnRounds: [adaHandsOff, quiet],
+      botRounds: [
+        () =>
+          round(
+            toolCall({
+              name: "start_helper",
+              input: { type: "general", task: `Look up 12 ${adaWords}.` },
+            }),
+          ),
+        quiet,
+        () => round(text(`Found 12 ${adaWords}.`)),
+      ],
+      holdCall,
+    });
+    // Only as far as the Helper's Model call, which the test then holds.
+    await startTestCustomerTurn(owner.deps, {
+      representativeId: (await owner.rpc.representative.list())[0]!.id,
+      message: "I'd like a refund.",
+      externalId: adaNumber,
+    });
+    return owner;
+  }
+
+  const runningTurnOf = async (botId: string) =>
+    (
+      await getTestDb()
+        .select()
+        .from(botTurn)
+        .where(and(eq(botTurn.botId, botId), eq(botTurn.status, "running")))
+    )[0]!;
+
+  it("denies what a Check-in's Turn asks after the delete, and redacts what it stored", async () => {
+    const { holdCall, open } = holdable(3);
+    const owner = await withCheckIn(holdCall);
+    const attempt = owner.drain();
+    await vi.waitFor(() => expect(owner.entered).toHaveLength(3), { timeout: 10_000 });
+    const turn = await runningTurnOf(owner.botId);
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    const asked = await asksApproval(owner, { turnId: turn.id });
+
+    open();
+    await attempt;
+    await owner.drain();
+    await expectDeniedForGood(owner, asked);
+    expect(await records([owner.botId])).not.toContain(adaWords);
+  });
+
+  it("denies what a Helper asks after the delete, and redacts what it stored", async () => {
+    const { holdCall, open } = holdable(3);
+    const owner = await withHelper(holdCall);
+    const attempt = owner.drain();
+    await vi.waitFor(() => expect(owner.entered).toHaveLength(3), { timeout: 10_000 });
+    const [running] = await getTestDb()
+      .select({ id: botHelper.id })
+      .from(botHelper)
+      .where(eq(botHelper.status, "running"));
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    const asked = await asksApproval(owner, { helperId: running!.id });
+
+    open();
+    await attempt;
+    await owner.drain();
+    await expectDeniedForGood(owner, asked);
+    const [helper] = await getTestDb()
+      .select()
+      .from(botHelper)
+      .where(eq(botHelper.id, running!.id));
+    expect(helper!.status).toBe("complete");
+    expect(JSON.stringify(helper)).not.toContain(adaWords);
+    expect(await records([owner.botId])).not.toContain(adaWords);
+  });
+
+  it("queues the pass at a Helper's own end, before any Turn takes its report", async () => {
+    const { holdCall, open } = holdable(3);
+    const owner = await withHelper(holdCall);
+    const helperEnded = async () =>
+      !(await getTestDb().select().from(botHelper).where(eq(botHelper.status, "running"))).length;
+    const attempt = (async () => {
+      let started = false;
+      for (let claimed = await owner.nextJob(); claimed; claimed = await owner.nextJob()) {
+        await owner.jobs.runClaimed(claimed, {});
+        started ||= owner.entered.length >= 3;
+        if (started && (await helperEnded())) return;
+      }
+    })();
+    await vi.waitFor(() => expect(owner.entered).toHaveLength(3), { timeout: 10_000 });
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    open();
+    await attempt;
+    expect(owner.entered).toHaveLength(3);
+    expect(await redactionPasses()).not.toEqual([]);
+  });
+
+  it("redacts a Helper's hand-off and its card, and denies what it asked, while it waits", async () => {
+    const { holdCall, open } = holdable(3);
+    const owner = await withHelper(holdCall);
+    const attempt = owner.drain();
+    await vi.waitFor(() => expect(owner.entered).toHaveLength(3), { timeout: 10_000 });
+    const db = getTestDb();
+    const [running] = await db
+      .select({ id: botHelper.id })
+      .from(botHelper)
+      .where(eq(botHelper.status, "running"));
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    const asked = await asksApproval(owner, { helperId: running!.id });
+    await db.transaction((tx) =>
+      handOff(
+        owner.deps,
+        tx,
+        { id: running!.id, botId: owner.botId, userId: owner.user.id },
+        `Log in to ${adaWords}'s refund account.`,
+        { transcript: [{ role: "assistant", content: `Found 12 ${adaWords}.` }], usage: null },
+      ),
+    );
+    open();
+    await attempt;
+    await owner.drain();
+
+    await expectDeniedForGood(owner, asked);
+    const [helper] = await db.select().from(botHelper).where(eq(botHelper.id, running!.id));
+    expect(helper!.status).toBe("waiting");
+    expect(JSON.stringify(helper)).not.toContain(adaWords);
+    expect(await records([owner.botId])).not.toContain(adaWords);
+  });
+
+  it("denies what a stopped Helper asked, and redacts what it stored", async () => {
+    const { holdCall, open } = holdable(3);
+    const owner = await withHelper(holdCall);
+    const attempt = owner.drain();
+    await vi.waitFor(() => expect(owner.entered).toHaveLength(3), { timeout: 10_000 });
+    const [running] = await getTestDb()
+      .select({ id: botHelper.id })
+      .from(botHelper)
+      .where(eq(botHelper.status, "running"));
+    const ada = await owner.customerAt(adaNumber);
+
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+    const asked = await asksApproval(owner, { helperId: running!.id });
+
+    await stopBotHelpers(owner.deps, owner.botId, running!.id);
+    open();
+    await attempt;
+    await owner.drain();
+    await expectDeniedForGood(owner, asked);
+    const [helper] = await getTestDb()
+      .select()
+      .from(botHelper)
+      .where(eq(botHelper.id, running!.id));
+    expect(helper!.status).toBe("stopped");
+    expect(JSON.stringify(helper)).not.toContain(adaWords);
+  });
+
+  it.each([
+    ["check_in", "check_in:not-a-uuid"],
+    ["helper", "helper:not-a-uuid"],
+    ["approval", "approval:not-a-uuid"],
+  ] as const)("still ends a Turn on a %s Trigger whose id names no row", async (source, id) => {
+    const { holdCall, open } = holdable(3);
+    const owner = await withCheckIn(holdCall);
+    const attempt = owner.drain();
+    await vi.waitFor(() => expect(owner.entered).toHaveLength(3), { timeout: 10_000 });
+    const turn = await runningTurnOf(owner.botId);
+    await getTestDb().insert(botTrigger).values({
+      id,
+      botId: owner.botId,
+      conversationId: turn.conversationId,
+      source,
+      channel: "web",
+      text: "A Trigger.",
+      turnId: turn.id,
+      receivedAt: owner.timer.clock.now(),
+    });
+
+    open();
+    await attempt;
+
+    const [ended] = await getTestDb().select().from(botTurn).where(eq(botTurn.id, turn.id));
+    expect(ended!.status).toBe("complete");
+    expect(await redactionPasses()).toEqual([]);
+  });
+
+  it("queues a pass for a Check-in firing after the delete, but not for what that Turn then sets", async () => {
+    const made: { at: Date } = { at: new Date(0) };
+    const setsCheckIn = () =>
+      round(
+        toolCall({
+          name: "set_check_in",
+          input: { at: made.at.toISOString(), note: `Call 12 ${adaWords} again.` },
+        }),
+      );
+    const owner = await serving({
+      turnRounds: [adaHandsOff, quiet],
+      botRounds: [
+        setsCheckIn,
+        finished("Called them."),
+        quiet,
+        setsCheckIn,
+        quiet,
+        says("Nothing more."),
+      ],
+    });
+    made.at = new Date(owner.timer.clock.now().getTime() + hour);
+    await owner.say("I'd like a refund.", adaNumber);
+    const ada = await owner.customerAt(adaNumber);
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    owner.timer.advance(hour);
+    made.at = new Date(owner.timer.clock.now().getTime() + 2 * hour);
+    await owner.drain();
+    expect(owner.entered).toHaveLength(5);
+    expect(await redactionPasses()).toHaveLength(1);
+
+    owner.timer.advance(2 * hour);
+    await owner.drain();
+    expect(owner.entered).toHaveLength(6);
+    expect(await redactionPasses()).toHaveLength(1);
+  });
+
+  it("changes nothing on a repeat of a Helper and a Turn holding a named Model message", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff, quiet], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const db = getTestDb();
+    const [turn] = await db
+      .select()
+      .from(botTurn)
+      .where(eq(botTurn.botId, owner.botId))
+      .orderBy(botTurn.startedAt)
+      .limit(1);
+    const named = { role: "user" as const, name: "Clerk", content: `About 12 ${adaWords}.` };
+    await db
+      .update(botTurn)
+      .set({ transcript: [named] })
+      .where(eq(botTurn.id, turn!.id));
+    const now = owner.timer.clock.now();
+    await db.insert(botHelper).values({
+      id: crypto.randomUUID(),
+      botId: owner.botId,
+      type: "general",
+      task: `Look up 12 ${adaWords}.`,
+      status: "complete",
+      report: `Found 12 ${adaWords}.`,
+      startedByTurnId: turn!.id,
+      transcript: [named],
+      startedAt: now,
+      endedAt: now,
+    });
+    const [handOff] = await db
+      .select({ assignmentId: representativeHandOff.assignmentId })
+      .from(representativeHandOff)
+      .where(eq(representativeHandOff.externalId, adaNumber));
+    const service = owner.context().assignments;
+    const redact = () =>
+      db.transaction((tx) =>
+        service.redact(tx, { userId: owner.user.id, ids: [handOff!.assignmentId] }),
+      );
+
+    expect((await redact()).conversationIds).not.toEqual([]);
+    expect((await redact()).conversationIds).toEqual([]);
+  });
+
+  it("queues no pass for a Check-in's Turn with no delete during it", async () => {
+    const owner = await withCheckIn();
+    await owner.drain();
+    expect(owner.entered).toHaveLength(3);
+    expect(await redactionPasses()).toEqual([]);
+  });
+
+  it("queues no pass for a Helper with no delete during it", async () => {
+    const owner = await withHelper();
+    await owner.drain();
+    const helpers = await getTestDb()
+      .select({ status: botHelper.status })
+      .from(botHelper)
+      .where(eq(botHelper.botId, owner.botId));
+    expect(helpers).toEqual([{ status: "complete" }]);
+    expect(await redactionPasses()).toEqual([]);
   });
 });
 

@@ -1,17 +1,10 @@
 import type { BotMemoryChange, MemoryTier } from "@botsdk/client/memory/changes";
 import { searchTextOf } from "@botsdk/client/message-parts";
 import type { ModelMessage } from "@tanstack/ai";
-import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import {
-  bot,
-  botAssignment,
-  botRoomMember,
-  botTrigger,
-  botTurn,
-  message,
-} from "@botsdk/bot/storage";
+import { bot, botAssignment, botTrigger, botTurn, message } from "@botsdk/bot/storage";
 import type { Database } from "@botsdk/bot/storage";
 import type { FeatureContext } from "@botsdk/bot/feature";
 import type { Transaction } from "@botsdk/bot/plugin";
@@ -111,7 +104,7 @@ export const botMemoryPassJob = defineJob<PassPayload, PassContext>({
 
 /**
  * The Bot's own work coming back: it may be about any Assignment the Bot holds, untrusted ones too.
- * An `agent` Trigger (a hand-off) is one too, about any Assignment held in its Room.
+ * An `agent` Trigger (a hand-off) is one too.
  */
 const followOnSources: readonly string[] = ["check_in", "helper", "approval", "agent"];
 
@@ -124,12 +117,13 @@ const passMayRead = ({ source, channel }: { source: string; channel: string }) =
  * where they can't be found or deleted (spec #1170). The rule keys on the untrusted Assignment
  * channel, so it covers any feature's Assignments and the children a Bot split off from them.
  * - `skip`: the Turn took only untrusted Assignment Triggers and the Bot's own work, or follows on from the Bot's own
- *   work (a Check-in, a Helper's report, an answered Approval) while it holds an untrusted
- *   Assignment that was not ended before the Turn started, or from a hand-off while any Bot of
- *   its Room does. No pass reads it.
- * - `user`: the Turn took such a Trigger beside others. The pass reads the user's lines and the
- *   trusted Triggers, and no line of the Bot's and no Check-in, Helper or Approval Trigger, which
- *   may be about that Assignment.
+ *   work (a Check-in, a Helper's report, an answered Approval, a hand-off) while it holds an
+ *   untrusted Assignment that was not ended before the Turn started, or took a hand-off from a Turn
+ *   that touched untrusted work (`fromUntrusted`, whoever is in its Room now). No pass reads it.
+ * - `user`: the Turn took such a Trigger beside others, or the user's Messages with no Bot's own work
+ *   while the Bot holds such an Assignment (#1323). The pass reads the user's lines and the trusted
+ *   Triggers, and no line of the Bot's and no Check-in, Helper or Approval Trigger, which may be about
+ *   that Assignment.
  * - `all`: as before.
  */
 async function passScope(
@@ -140,8 +134,7 @@ async function passScope(
     .select({
       source: botTrigger.source,
       channel: botTrigger.channel,
-      conversationId: botTrigger.conversationId,
-      receivedAt: botTrigger.receivedAt,
+      fromUntrusted: botTrigger.fromUntrusted,
     })
     .from(botTrigger)
     .where(eq(botTrigger.turnId, turn.id));
@@ -149,49 +142,24 @@ async function passScope(
     return triggers.some(passMayRead) ? "user" : "skip";
   }
   const followsOn = triggers.some((each) => followOnSources.includes(each.source));
-  if (!followsOn) return "all";
-  const openBetween = (from: Date, to: Date) =>
-    and(
-      lte(botAssignment.createdAt, to),
-      or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, from)),
-    );
-  // A hand-off is held by any Bot of its Room, per Room, from when it came until the Turn began:
-  // another Bot's message can carry what that Bot's untrusted Assignment holds, and a busy Bot may
-  // take it after that ended.
-  const handOffs = triggers.flatMap((each) =>
-    each.source === "agent"
-      ? [
-          and(
-            inArray(
-              botAssignment.assignedBotId,
-              db
-                .select({ botId: botRoomMember.botId })
-                .from(botRoomMember)
-                .where(eq(botRoomMember.conversationId, each.conversationId)),
-            ),
-            openBetween(each.receivedAt, turn.startedAt),
-          ),
-        ]
-      : [],
-  );
+  const tookUser = triggers.some((each) => each.source === "user");
+  // Any other Trigger with no follow-on, such as a Routine's, isn't about the Assignment.
+  if (!followsOn && !tookUser) return "all";
+  const restricted = tookUser ? "user" : "skip";
+  if (triggers.some((each) => each.fromUntrusted)) return restricted;
   const [held] = await db
     .select({ id: botAssignment.id })
     .from(botAssignment)
     .where(
       and(
         eq(botAssignment.assignerTrusted, false),
-        or(
-          and(
-            eq(botAssignment.assignedBotId, turn.botId),
-            openBetween(turn.startedAt, turn.startedAt),
-          ),
-          ...handOffs,
-        ),
+        eq(botAssignment.assignedBotId, turn.botId),
+        lte(botAssignment.createdAt, turn.startedAt),
+        or(isNull(botAssignment.endedAt), gte(botAssignment.endedAt, turn.startedAt)),
       ),
     )
     .limit(1);
-  if (!held) return "all";
-  return triggers.some((each) => each.source === "user") ? "user" : "skip";
+  return held ? restricted : "all";
 }
 
 /**

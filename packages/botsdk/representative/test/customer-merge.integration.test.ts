@@ -25,7 +25,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
-import { customerSummaryMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 
@@ -76,7 +76,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
     ...fake.adapter,
     chatStream: async function* (options) {
       // The pass after a close isn't what these tests script: it hears nothing and writes nothing.
-      if (JSON.stringify(options.systemPrompts).includes(customerSummaryMarker)) {
+      if (isSummaryPass(options)) {
         yield* round();
         return;
       }
@@ -559,14 +559,16 @@ describe("an owner undoing a merge", () => {
       channel: "sms",
       externalId: was,
     });
-    const call = (callId: string, threadId: string, externalId: string) => ({
+    const hisIdentityId = added.identities.find((each) => each.externalId === was)!.id;
+    const call = (callId: string, threadId: string, externalId: string, identityId?: string) => ({
       id: uuidv7(),
       callId,
       threadId,
       externalId,
+      identityId,
       startedAt: new Date(),
     });
-    const onHerThread = call("on-her-thread", threadOf(ada.id), was);
+    const onHerThread = call("on-her-thread", threadOf(ada.id), was, hisIdentityId);
     const entryId = uuidv7();
     await getTestDb().insert(representativeThreadMessage).values({
       id: entryId,
@@ -580,7 +582,7 @@ describe("an owner undoing a merge", () => {
     await getTestDb()
       .insert(representativeCall)
       .values([
-        call("on-his-thread", threadOf(bob.id), was),
+        call("on-his-thread", threadOf(bob.id), was, hisIdentityId),
         { ...onHerThread, messageId: entryId },
         call("hers", threadOf(ada.id), adasNumber),
         call("another-owners", theirThread!.id, was),
@@ -588,7 +590,7 @@ describe("an owner undoing a merge", () => {
 
     await rpc.representative.customerUpdateIdentity({
       id: bob.id,
-      identityId: added.identities.find((each) => each.externalId === was)!.id,
+      identityId: hisIdentityId,
       channel: "sms",
       externalId: now,
     });

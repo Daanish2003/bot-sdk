@@ -50,6 +50,39 @@ export function counterStoreContract(
       expect((await counters.hit(key, 200)).count).toBe(1);
     });
 
+    it("forgets a key on reset, so the next hit counts from one again (#1363)", async () => {
+      const counters = await make();
+      const key = freshKey();
+      await counters.hit(key, 60_000);
+      await counters.hit(key, 60_000);
+
+      await counters.reset(key);
+
+      expect((await counters.hit(key, 60_000)).count).toBe(1);
+    });
+
+    it("gives a key a new window on reset with one, whose length the next hit reports (#1363)", async () => {
+      const counters = await make();
+      const key = freshKey();
+      await counters.hit(key, 60_000);
+
+      await counters.reset(key, 3_600_000);
+      const hit = await counters.hit(key, 60_000);
+
+      expect(hit.count).toBe(2);
+      expect(hit.resetMs).toBeGreaterThan(60_000);
+      expect(hit.resetMs).toBeLessThanOrEqual(3_600_000);
+    });
+
+    it("opens the window on reset when the key has none (#1363)", async () => {
+      const counters = await make();
+      const key = freshKey();
+
+      await counters.reset(key, 60_000);
+
+      expect((await counters.hit(key, 60_000)).count).toBe(2);
+    });
+
     it("keeps separate keys apart", async () => {
       const counters = await make();
       const a = freshKey();

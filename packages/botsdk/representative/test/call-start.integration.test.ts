@@ -582,6 +582,25 @@ describe("the Call's row", () => {
     expect(call!.startedAt).toBeInstanceOf(Date);
   });
 
+  it("points at the SMS identity the Call was made from", async () => {
+    const { start, calls, user } = await world();
+
+    await start();
+
+    const [identity] = await getTestDb()
+      .select({ id: representativeCustomerIdentity.id })
+      .from(representativeCustomerIdentity)
+      .where(
+        and(
+          eq(representativeCustomerIdentity.userId, user.id),
+          eq(representativeCustomerIdentity.channel, "sms"),
+          eq(representativeCustomerIdentity.externalId, caller),
+        ),
+      );
+    const [call] = await calls();
+    expect(call!.identityId).toBe(identity!.id);
+  });
+
   it("adds no second row for a repeated start, and answers it the same", async () => {
     const { start, calls } = await world();
 

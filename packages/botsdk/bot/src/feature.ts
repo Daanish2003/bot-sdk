@@ -401,7 +401,8 @@ export type FeatureDefinition<
    * the Linked identity check: everyone there is a stranger to the core, and link codes do nothing. The
    * feature decides what it becomes; the core starts no Bot Conversation and no Turn. The core has
    * already dropped a resent update and anything not from a private chat. A throw is logged and the
-   * update is dropped.
+   * update is dropped, except on a webhook platform's account, which answers 503 so the platform
+   * sends it again (#1363).
    */
   onStranger?: (message: StrangerMessage, context: FeatureContext<Needs>) => Promise<void>;
   /**
