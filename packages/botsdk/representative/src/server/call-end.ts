@@ -120,8 +120,8 @@ export async function closeCall(
     .for("update");
   if (!held) return false;
   const { externalId, requests } = held;
-  if (call.identityId === null && externalId !== call.externalId) {
-    caller = await callerOf(tx, call.userId, null, externalId);
+  if (externalId !== call.externalId) {
+    caller = await callerOf(tx, call.userId, call.identityId, externalId);
   }
   const kept = thread.blockedAt !== null || (caller?.optedOutAt ?? null) !== null;
   const messageId = uuidv7();
