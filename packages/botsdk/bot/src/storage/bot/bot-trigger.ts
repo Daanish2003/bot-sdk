@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   check,
   index,
   integer,
@@ -89,6 +90,12 @@ export const botTrigger = botsdkSchema.table(
      * more than the highest of the Triggers its sending Turn took; any other Trigger's is 0.
      */
     hops: integer("hops").notNull().default(0),
+    /**
+     * Whether an `agent` Trigger's sending Turn touched untrusted work (#1327): it held an untrusted
+     * Assignment, or took an untrusted Assignment's Trigger or a hand-off stamped so. Set when the
+     * hand-off is made, so what happens to that work or to the Room afterwards can't change it.
+     */
+    fromUntrusted: boolean("from_untrusted").notNull().default(false),
   },
   (table) => [
     primaryKey({ name: "bot_trigger_pkey", columns: [table.id, table.botId] }),

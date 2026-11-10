@@ -94,5 +94,9 @@
   {
     "name": "20261105120135_channel_account_optional_bot",
     "sql": "ALTER TABLE \"botsdk\".\"channel_account\" ALTER COLUMN \"bot_id\" DROP NOT NULL;"
+  },
+  {
+    "name": "20261110011610_trigger_from_untrusted",
+    "sql": "ALTER TABLE \"botsdk\".\"bot_trigger\" ADD COLUMN \"from_untrusted\" boolean DEFAULT false NOT NULL;"
   }
 ]

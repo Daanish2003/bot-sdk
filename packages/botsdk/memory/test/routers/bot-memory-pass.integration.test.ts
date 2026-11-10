@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { assignmentEnded, defineFeature, defineJob, type FeatureContext } from "@botsdk/bot";
 import { sendToUserToolName } from "@botsdk/bot/bot/context";
 import { isTurnCall } from "@ai-chat/test-support/bot-turns";
-import { receive } from "@botsdk/bot/bot/triggers";
+import { receive, untrustedAssignmentChannel } from "@botsdk/bot/bot/triggers";
 import { conversationChannel } from "@botsdk/bot/chat/conversation-events";
 import type { Transaction } from "@botsdk/bot/plugin";
 import { createMemoryPubSub } from "@botsdk/bot/chat/pubsub";
@@ -1378,6 +1378,12 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
     bea: string;
     clock: () => Date;
   };
+  type ChainRoom = {
+    ada: string;
+    clock: () => Date;
+    client: ReturnType<typeof chatRpc>;
+    conversationId: string;
+  };
   const timeout = 30_000;
   const poll = { timeout: 10_000 };
   const secret = "THE-CUSTOMER-LIVES-AT-ELM-STREET";
@@ -1436,9 +1442,13 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
 
   /**
    * Bots Ada, Bea and Cleo in a Room. Ada's Room Turn hands the secret on to Bea, Bea's to Cleo,
-   * each ending its Turn; `held` names the Bot given an untrusted Assignment first, if any.
+   * each ending its Turn; `held` names the Bot given an untrusted Assignment first, if any, and
+   * `start` wakes Ada in the Room instead of the user's Message.
    */
-  async function handedOff(held?: "Ada" | "Bea" | "Cleo") {
+  async function handedOff(
+    held?: "Ada" | "Bea" | "Cleo",
+    start?: (deps: TestDeps, ada: string, conversationId: string) => Promise<unknown>,
+  ) {
     const made = assigner();
     const replies: Record<string, string> = {
       Ada: `@Bea, ${secret}`,
@@ -1467,7 +1477,8 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
       await expect.poll(() => statuses(ids[held]), poll).toEqual(["complete"]);
     }
     const room = await sdk.client.rooms.create({ name: "Repairs", botIds: [ada, bea, cleo] });
-    await sdk.client.rooms.send({ conversationId: room.conversationId, text: "@Ada go on" });
+    if (start) await start(sdk.deps, ada, room.conversationId);
+    else await sdk.client.rooms.send({ conversationId: room.conversationId, text: "@Ada go on" });
     await expect
       .poll(async () => (await statuses(cleo)).length, poll)
       .toBe(held === "Cleo" ? 2 : 1);
@@ -1477,8 +1488,8 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
     return { passTexts, ...sdk };
   }
 
-  it.each([["Ada"], ["Bea"], ["Cleo"]] as const)(
-    "runs no pass reading the hand-off while %s holds an untrusted Assignment in the Room",
+  it.each([["Ada"], ["Bea"]] as const)(
+    "runs no pass reading the hand-off from a Turn of %s, which holds an untrusted Assignment",
     async (held) => {
       const { passTexts } = await handedOff(held);
 
@@ -1493,13 +1504,162 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
   );
 
   /**
+   * Ada, holding an untrusted Assignment, hands the secret on to Bea in a Room of the three, and Bea
+   * hands it on to Cleo. `whileAdaWaits` runs while Ada's Room Turn is at the Model, and
+   * `whileBeaWaits` while Bea's is. Returns what the passes were shown.
+   */
+  async function chainFromHolder({
+    whileAdaWaits,
+    whileBeaWaits,
+  }: {
+    whileAdaWaits?: (room: ChainRoom) => Promise<unknown>;
+    whileBeaWaits?: (room: ChainRoom) => Promise<unknown>;
+  }) {
+    const made = assigner();
+    const held = { Ada: hold(), Bea: hold() };
+    const waiting = new Map(Object.entries(held));
+    const replies: Record<string, string> = {
+      Ada: `@Bea, ${secret}`,
+      Bea: `BEA-REPLY @Cleo, ${secret}`,
+      Cleo: "CLEO-REPLY",
+    };
+    const sdk = await botsWith(
+      Array.from({ length: 20 }, () => (call: TextOptions) => {
+        if (!isTurnCall(call)) return ops();
+        const who = callerOf(call);
+        return who && replies[who]
+          ? round(
+              toolCall({
+                name: sendToUserToolName,
+                input: { text: replies[who], endTurn: true },
+              }),
+            )
+          : round();
+      }),
+      { names: ["Ada", "Bea", "Cleo"], features: [made.feature] },
+    );
+    // Each of Ada's and Bea's first Room Turn calls waits at the Model.
+    const play = sdk.fake.adapter.chatStream;
+    sdk.fake.adapter.chatStream = async function* (options: TextOptions) {
+      const who = callerOf(options);
+      const wait = waiting.get(who);
+      if (wait) {
+        waiting.delete(who);
+        await wait.wait();
+      }
+      yield* play(options);
+    } as typeof sdk.fake.adapter.chatStream;
+    const [ada, bea, cleo] = sdk.botIds as [string, string, string];
+    await made.create(sdk.user.id, ada);
+    await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+    const room = await sdk.client.rooms.create({ name: "Repairs", botIds: [ada, bea, cleo] });
+    const each = {
+      ada,
+      clock: sdk.deps.clock,
+      client: sdk.client,
+      conversationId: room.conversationId,
+    };
+    await sdk.client.rooms.send({ conversationId: room.conversationId, text: "@Ada go on" });
+    await held.Ada.reached;
+    await whileAdaWaits?.(each);
+    held.Ada.release();
+    await held.Bea.reached;
+    await whileBeaWaits?.(each);
+    held.Bea.release();
+    await expect.poll(() => statuses(cleo), poll).toEqual(["complete"]);
+    // Lets every pass queued by then run.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    return sdk.fake.calls.filter((call) => !isTurnCall(call)).map(userTextOf);
+  }
+
+  const endAssignmentOf = ({ ada, clock }: ChainRoom) =>
+    getTestDb()
+      .update(botAssignment)
+      .set({ status: "cancelled", endedAt: clock() })
+      .where(eq(botAssignment.assignedBotId, ada));
+
+  const expectNoPassRead = (passTexts: string[]) => {
+    expect(passTexts.filter((text) => text.includes("BEA-REPLY"))).toEqual([]);
+    expect(passTexts.filter((text) => text.includes("CLEO-REPLY"))).toEqual([]);
+    expect(passTexts.some((text) => text.includes(secret) && text.includes("Another Bot"))).toBe(
+      false,
+    );
+  };
+
+  it(
+    "carries the stamp down a chain of hand-offs, with nobody holding anything by the second",
+    async () => {
+      expectNoPassRead(await chainFromHolder({ whileBeaWaits: endAssignmentOf }));
+    },
+    timeout,
+  );
+
+  it(
+    "counts a Turn that took an untrusted Assignment's Trigger, with no Assignment held",
+    async () => {
+      const { passTexts } = await handedOff(undefined, async (deps, ada, conversationId) => {
+        await getTestDb().transaction((tx) =>
+          receive(deps, tx, {
+            id: `assignment:${uuidv7()}`,
+            botId: ada,
+            conversationId,
+            source: "assignment",
+            channel: untrustedAssignmentChannel,
+            text: "Pass it on.",
+            receivedAt: deps.clock(),
+          }),
+        );
+        deps.runner.wake();
+      });
+
+      expectNoPassRead(passTexts);
+    },
+    timeout,
+  );
+
+  it(
+    "counts an Assignment that ended earlier in the Turn that posts the hand-off",
+    async () => {
+      expectNoPassRead(await chainFromHolder({ whileAdaWaits: endAssignmentOf }));
+    },
+    timeout,
+  );
+
+  it(
+    "still counts the hand-off once its sender is removed from the Room",
+    async () => {
+      expectNoPassRead(
+        await chainFromHolder({
+          whileBeaWaits: ({ client, conversationId, ada }) =>
+            client.rooms.removeMember({ conversationId, botId: ada }),
+        }),
+      );
+    },
+    timeout,
+  );
+
+  it(
+    "runs the pass for a hand-off from a Bot with no untrusted work, though another member holds some",
+    async () => {
+      const { passTexts } = await handedOff("Cleo");
+
+      const beas = passTexts.filter((text) => text.includes("\n\nBot: BEA-REPLY"));
+      expect(beas.length).toBeGreaterThan(0);
+      for (const text of beas) expect(text).toContain(`Another Bot: @Bea, ${secret}`);
+      expect(passTexts.filter((text) => text.includes("CLEO-REPLY"))).toEqual([]);
+    },
+    timeout,
+  );
+
+  /**
    * After `before`, Ada's Room Turn waits at the Model while Bea's posts a hand-off to her. `meanwhile`
-   * then runs, and Ada takes the hand-off in a Turn that starts after it. Returns the passes that were
-   * shown the hand-off.
+   * then runs, and Ada takes the hand-off in a Turn that starts after it, or, with `ending` of
+   * `stopped`, it goes to the Turn `meanwhile` stopped. Returns the passes shown the hand-off.
    */
   async function handOffToBusyAda(
     before: (sdk: BusyRoom) => Promise<void>,
-    meanwhile: (sdk: BusyRoom) => Promise<void>,
+    meanwhile: (sdk: BusyRoom, room: { stop: () => Promise<unknown> }) => Promise<void>,
+    ending: "taken" | "stopped" = "taken",
   ) {
     const made = assigner();
     const adaBusy = hold();
@@ -1544,15 +1704,21 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
       )
       .toBe(1);
 
-    await meanwhile(each);
+    await meanwhile(each, {
+      // One Bot's Stop: a Room's Stop skips the hand-offs waiting there rather than handing them on.
+      stop: () => sdk.client.bots.stop({ botId: ada, conversationId: room.conversationId }),
+    });
     await new Promise((resolve) => setTimeout(resolve, 5));
     adaBusy.release();
     await expect
       .poll(
-        async () => (await statuses(ada)).filter((status) => status === "complete").length,
+        async () =>
+          (await statuses(ada)).filter(
+            (status) => status === (ending === "taken" ? "complete" : "stopped"),
+          ).length,
         poll,
       )
-      .toBe(2);
+      .toBe(ending === "taken" ? 2 : 1);
     // Lets every pass queued by then run.
     await new Promise((resolve) => setTimeout(resolve, 1_000));
 
@@ -1585,7 +1751,26 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
   );
 
   it(
-    "runs no pass reading a hand-off when a Room Bot took an untrusted Assignment before the Turn began",
+    "runs no pass reading a hand-off that went to a stopped Turn from a sender with untrusted work",
+    async () => {
+      const shown = await handOffToBusyAda(
+        async ({ made, userId, bea }) => {
+          await made.create(userId, bea);
+          await expect.poll(() => statuses(bea), poll).toEqual(["complete"]);
+        },
+        async (_sdk, { stop }) => {
+          await stop();
+        },
+        "stopped",
+      );
+
+      expect(shown).toEqual([]);
+    },
+    timeout,
+  );
+
+  it(
+    "runs the pass for a hand-off whose sender took untrusted work only after posting it",
     async () => {
       const shown = await handOffToBusyAda(
         async () => {},
@@ -1594,7 +1779,7 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
         },
       );
 
-      expect(shown).toEqual([]);
+      expect(shown.length).toBeGreaterThan(0);
     },
     timeout,
   );
