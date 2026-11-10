@@ -19,7 +19,7 @@ import { botTrigger, channelAccount, job, linkedIdentity, message } from "../../
 /*
  * A messaging Channel whose platform only posts to a webhook (ticket #1355): the Host's route for
  * the fake adapter's webhook checks the signature and hands the updates to the same inbound path a
- * listener's take, answering before the work after accepting is done.
+ * listener's take, answering once they are stored (#1363).
  */
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -326,27 +326,173 @@ describe("a messaging Channel's webhook route", () => {
     expect(stopped).toBe("stopped");
   });
 
-  it("answers before the work after accepting is done", async () => {
+  /** Holds the store: the Ban check, its first step, waits until `release` is called. */
+  const heldStore = () => {
     let release!: () => void;
-    let held: Promise<boolean> | null = null;
+    const gate = new Promise<boolean>((resolve) => (release = () => resolve(false)));
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    return {
+      release,
+      reached,
+      isBlocked: async () => {
+        entered();
+        return gate;
+      },
+    };
+  };
+
+  it("answers 202 only once the update is stored (#1363)", async () => {
+    const store = heldStore();
+    const { fake, conversationId, url, post } = await webhookBot({ isBlocked: store.isBlocked });
+
+    const answered = post(fake.webhookRequest(url, token, [{ sourceId: "1", text: "Hi" }]));
+    await store.reached;
+    const early = await Promise.race([
+      answered,
+      new Promise<"held">((resolve) => setTimeout(() => resolve("held"), 300)),
+    ]);
+
+    expect(early).toBe("held");
+    expect(await triggersOf(conversationId)).toEqual([]);
+    store.release();
+    expect((await answered).status).toBe(202);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
+  });
+
+  it("answers 503 when the update can't be stored, and stores its retry exactly once (#1363)", async () => {
+    let fail = false;
+    let checks = 0;
     const { fake, conversationId, url, post } = await webhookBot({
-      isBlocked: async () => (held ? await held : false),
+      isBlocked: async () => {
+        checks += 1;
+        if (fail) throw new Error("the database went away");
+        return false;
+      },
     });
-    held = new Promise<boolean>((resolve) => (release = () => resolve(false)));
+    const sent = () => post(fake.webhookRequest(url, token, [{ sourceId: "2", text: "Hi" }]));
 
-    try {
-      // The work waits on the Ban check, which holds until released: the answer mustn't wait.
-      const response = await Promise.race([
-        post(fake.webhookRequest(url, token, [{ text: "Hi" }])),
-        new Promise<"held">((resolve) => setTimeout(() => resolve("held"), 5_000)),
-      ]);
+    fail = true;
+    checks = 0;
+    const failed = await sent();
+    expect(failed.status).toBe(503);
+    expect(await triggersOf(conversationId)).toEqual([]);
 
-      expect(response).not.toBe("held");
-      expect((response as Response).status).toBe(202);
-      expect(await triggersOf(conversationId)).toEqual([]);
-    } finally {
-      release();
-    }
-    await expect.poll(async () => (await triggersOf(conversationId)).length, poll).toBe(1);
+    fail = false;
+    const retried = await sent();
+    expect(retried.status).toBe(202);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
+
+    // Already stored: resent, it never reaches the inbound path again.
+    const resent = await sent();
+    expect(resent.status).toBe(202);
+    expect(checks).toBe(2);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
+  });
+
+  it("stores each update of a request exactly once after the retry of one that failed (#1363)", async () => {
+    const seen: string[] = [];
+    let failing: string | null = null;
+    const { fake, deps, conversationId, accountId, url, post } = await webhookBot();
+    // Which update is going through the inbound path, by the Linked identity read of its sender.
+    const sender = (update: { sourceId: string }) => ({
+      get id() {
+        seen.push(update.sourceId);
+        if (failing === update.sourceId) throw new Error("the database went away");
+        return "1001";
+      },
+      handle: "@ada",
+    });
+    const receive = fake.adapter.webhook!;
+    fake.adapter.webhook = async (...args) => {
+      const read = await receive(...args);
+      if ("rejected" in read) return read;
+      return { updates: read.updates.map((update) => ({ ...update, sender: sender(update) })) };
+    };
+    const updates = [
+      { sourceId: "a", text: "first" },
+      { sourceId: "b", text: "second" },
+      { sourceId: "c", text: "third" },
+    ];
+    const sent = () => post(fake.webhookRequest(url, token, updates), deps);
+
+    failing = "b";
+    expect((await sent()).status).toBe(503);
+    expect((await triggersOf(conversationId)).map(({ id }) => id).sort()).toEqual([
+      `fake:${accountId}:a`,
+      `fake:${accountId}:c`,
+    ]);
+
+    failing = null;
+    seen.length = 0;
+    expect((await sent()).status).toBe(202);
+
+    expect((await triggersOf(conversationId)).map(({ id }) => id).sort()).toEqual([
+      `fake:${accountId}:a`,
+      `fake:${accountId}:b`,
+      `fake:${accountId}:c`,
+    ]);
+    // Only the one that failed went through the inbound path again.
+    expect(new Set(seen)).toEqual(new Set(["b"]));
+  });
+
+  it("answers a copy that arrives while the first is being stored with 503, and stores it once (#1363)", async () => {
+    const store = heldStore();
+    const { fake, conversationId, url, post, instance } = await webhookBot({
+      isBlocked: store.isBlocked,
+    });
+    const other = instance();
+    const request = () => fake.webhookRequest(url, token, [{ sourceId: "3", text: "Hi" }]);
+
+    const first = post(request());
+    await store.reached;
+    // Were this 202, a first attempt that then failed would have no retry left.
+    const copy = await post(request(), other);
+    expect(copy.status).toBe(503);
+
+    store.release();
+    expect((await first).status).toBe(202);
+    expect((await post(request(), other)).status).toBe(202);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
+  });
+
+  it("stores two copies posted at once exactly once, across instances (#1363)", async () => {
+    let checks = 0;
+    const { fake, conversationId, url, post, instance } = await webhookBot({
+      isBlocked: async () => {
+        checks += 1;
+        return false;
+      },
+    });
+    const other = instance();
+    checks = 0;
+    const request = () => fake.webhookRequest(url, token, [{ sourceId: "4", text: "Hi" }]);
+
+    const statuses = (await Promise.all([post(request()), post(request(), other)])).map(
+      ({ status }) => status,
+    );
+
+    expect(statuses.filter((status) => status === 202)).toHaveLength(1);
+    expect(checks).toBe(1);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
+  });
+
+  it("keeps the instance's stop waiting for a request still being stored (#1363)", async () => {
+    const store = heldStore();
+    const { fake, deps, conversationId, url, post } = await webhookBot({
+      isBlocked: store.isBlocked,
+    });
+    const answered = post(fake.webhookRequest(url, token, [{ sourceId: "6", text: "Hi" }]));
+    await store.reached;
+
+    let stopped = false;
+    const stopping = started[0]!.part.stop!(deps).then(() => (stopped = true));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(stopped).toBe(false);
+    store.release();
+    await stopping;
+    expect((await answered).status).toBe(202);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
   });
 });

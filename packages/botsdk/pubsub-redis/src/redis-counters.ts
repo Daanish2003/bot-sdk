@@ -21,5 +21,11 @@ export function createRedisCounters(connection: RedisConnection, prefix: string)
         .exec()) as [unknown, number, number];
       return { count, resetMs: ttl > 0 ? ttl : windowMs };
     },
+    async reset(key, windowMs) {
+      const client = await connection.command();
+      const redisKey = `${prefix}counter:${key}`;
+      if (windowMs === undefined) await client.del(redisKey);
+      else await client.set(redisKey, 1, { PX: windowMs });
+    },
   };
 }

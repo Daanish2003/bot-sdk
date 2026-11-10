@@ -52,7 +52,9 @@ function recentOf(sdk: BotSdkContext, accountId: string): Set<string> {
  * so by a system notice, a message from the Bot's user's Linked identity, in a private chat, wakes
  * the Bot (#1047), and any other update is dropped silently. A resent update (its `sourceId` seen
  * lately) acts no more.
- * `appUrl` is the Host's app, for the links its notices carry.
+ * `appUrl` is the Host's app, for the links its notices carry. A feature's `onStranger` that throws
+ * is logged and its update dropped, unless `strangerFailure` is `raise`: a webhook route's update
+ * then rejects like any other that couldn't be stored, so the platform sends it again (#1363).
  */
 export async function receiveMessaging(
   sdk: BotSdkContext,
@@ -61,6 +63,7 @@ export async function receiveMessaging(
   update: MessagingUpdate,
   appUrl: string | null,
   onRejected: (reason: string) => Promise<void>,
+  strangerFailure: "drop" | "raise" = "drop",
 ): Promise<void> {
   const recent = recentOf(sdk, account.id);
   if (recent.has(update.sourceId)) {
@@ -72,7 +75,15 @@ export async function receiveMessaging(
   recent.add(update.sourceId);
   if (recent.size > recentLimit) recent.delete(recent.values().next().value!);
   try {
-    await receiveOnce(sdk, adapter, account, withoutNul(update), appUrl, onRejected);
+    await receiveOnce(
+      sdk,
+      adapter,
+      account,
+      withoutNul(update),
+      appUrl,
+      onRejected,
+      strangerFailure,
+    );
   } catch (error) {
     recent.delete(update.sourceId);
     throw error;
@@ -86,6 +97,7 @@ async function receiveOnce(
   update: MessagingUpdate,
   appUrl: string | null,
   onRejected: (reason: string) => Promise<void>,
+  strangerFailure: "drop" | "raise",
 ): Promise<void> {
   // Called on the logger, so a class-based one keeps its `this`. Never the text.
   const drop = (reason: string) =>
@@ -107,6 +119,7 @@ async function receiveOnce(
         holder.context,
       );
     } catch (error) {
+      if (strangerFailure === "raise") throw error;
       sdk.logger.error(`A ${account.platform} update on a held account was dropped`, error);
     }
     return;
