@@ -2,7 +2,7 @@ import type { ModelMessage, TextOptions } from "@tanstack/ai";
 import { createAnthropicChat } from "@tanstack/ai-anthropic";
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import pg from "pg";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   databaseOf,
@@ -766,6 +766,48 @@ describe("a warm holds no transaction across its Model call", () => {
       expect(await warmLockHeld(botId)).toBe(false);
       // The call is billed, so its row goes through the pool instead.
       expect(await usageKinds(user.id)).toEqual(["turn", "warm"]);
+    },
+  );
+
+  it(
+    "gives up on a Provider that never answers, freeing the Bot's lock and its connection",
+    { timeout },
+    async () => {
+      const errors: unknown[][] = [];
+      const { fake, user, client, botId } = await botWith(
+        [round(), warmRound()],
+        "anthropic:claude-sonnet-5-5",
+        { logger: { error: (...args: unknown[]) => errors.push(args) } },
+      );
+      await send(client, botId, "hi");
+      await ageCalls(user.id, 56);
+      const play = fake.adapter.chatStream;
+      // A Provider that stalls and ignores the abort.
+      fake.adapter.chatStream = (() => ({
+        [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
+      })) as unknown as typeof fake.adapter.chatStream;
+      const real = AbortSignal.timeout.bind(AbortSignal);
+      const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => real(300));
+      const pool = (getTestDb() as unknown as { $client: pg.Pool }).$client;
+
+      try {
+        const warmed = await Promise.race([
+          client.bots.warm({ botId }),
+          new Promise((resolve) => setTimeout(() => resolve("stuck"), 5_000)),
+        ]);
+        expect(warmed).toEqual({ warmed: false, skipped: "unavailable" });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await usageKinds(user.id)).toEqual(["turn"]);
+      expect(await warmLockHeld(botId)).toBe(false);
+      expect(errors.length).toBeGreaterThan(0);
+      // Every connection the pool opened is back in it.
+      expect(pool.idleCount).toBe(pool.totalCount);
+      expect(pool.totalCount).toBeGreaterThan(0);
+
+      fake.adapter.chatStream = play;
+      expect(await client.bots.warm({ botId })).toEqual({ warmed: true });
     },
   );
 
