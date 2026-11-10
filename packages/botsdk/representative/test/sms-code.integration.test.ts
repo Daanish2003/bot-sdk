@@ -16,7 +16,7 @@ import { asc, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { connectChannelAccount, heldAccountChannel } from "../src/server/channel-accounts";
-import { customerSummaryMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import {
   representativeCustomerIdentity,
   representativeThreadMessage,
@@ -56,10 +56,6 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-/** Whether a Model call is the Customer memory pass a closed thread queues, not a Turn's. */
-const isPassCall = (options: TextOptions) =>
-  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
-
 /**
  * A running instance whose Model plays `rounds` in turn for the Turns (a leap past the idle close
  * also makes a memory pass, answered apart), and whose SMS account is a fake platform's.
@@ -71,7 +67,7 @@ async function world(rounds: ReturnType<typeof round>[]) {
     rounds: Array.from(
       { length: 40 },
       () => (options: TextOptions) =>
-        isPassCall(options) ? round(text("A summary.")) : turns.shift()!,
+        isSummaryPass(options) ? round(text("A summary.")) : turns.shift()!,
     ),
   });
   const timer = fakeJobClock(at);
@@ -181,7 +177,7 @@ const settled = () =>
 
 /** The Turns' Model calls, without the memory passes. */
 const turnCalls = (fake: { calls: TextOptions[] }) =>
-  fake.calls.filter((call) => !isPassCall(call));
+  fake.calls.filter((call) => !isSummaryPass(call));
 
 const prompts = (fake: { calls: TextOptions[] }) =>
   turnCalls(fake).map((call) => JSON.stringify(call.messages));

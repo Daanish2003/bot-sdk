@@ -23,7 +23,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import type { AnyTextAdapter } from "@tanstack/ai";
 import { representative } from "../src";
-import { customerSummaryMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import {
   representativeCustomer,
   representativeCustomerIdentity,
@@ -96,7 +96,7 @@ async function instance(rounds: Round[], held?: Promise<void>) {
     ...fake.adapter,
     chatStream: async function* (options) {
       // The summary pass after a close isn't what these tests script: it gets an empty reply, so it uses no round.
-      if (JSON.stringify(options.systemPrompts).includes(customerSummaryMarker)) {
+      if (isSummaryPass(options)) {
         yield* round();
         return;
       }

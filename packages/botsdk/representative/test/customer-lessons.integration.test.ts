@@ -17,10 +17,10 @@ import { representative } from "../src";
 import { representativeFactProposal } from "../src/server/db/schema";
 import {
   customerSummaryJobName,
-  customerSummaryMarker,
   lessonMarker,
   profileOperationsMarker,
 } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import { threadIdleMs } from "../src/server/idle";
 
 /*
@@ -44,9 +44,6 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-const isPassCall = (options: TextOptions) =>
-  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
-
 const lesson = {
   key: "policy.same-day",
   type: "text",
@@ -59,7 +56,7 @@ const replying = (tail: string) => () => round(text(`A summary.\n${lessonMarker}
 
 async function instance(pass: () => ReturnType<typeof round>, prompts: string[] = []) {
   const reply = (options: TextOptions) => {
-    if (!isPassCall(options)) return answersOnce(options);
+    if (!isSummaryPass(options)) return answersOnce(options);
     prompts.push(JSON.stringify(options.systemPrompts ?? []));
     return pass();
   };

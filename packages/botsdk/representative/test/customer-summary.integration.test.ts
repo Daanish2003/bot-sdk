@@ -20,7 +20,6 @@ import {
   toolCall,
   withUsage,
 } from "@botsdk/testing/fake-adapter";
-import type { TextOptions } from "@tanstack/ai";
 import { representative } from "../src";
 import {
   representativeThreadMessage,
@@ -28,11 +27,8 @@ import {
 } from "../src/server/db/schema";
 import { threadIdleJobName, threadIdleMs } from "../src/server/idle";
 import { handOffMessage } from "../src/server/replies";
-import {
-  customerSummaryJobName,
-  customerSummaryMarker,
-  profileOperationsMarker,
-} from "../src/server/customer-summary";
+import { customerSummaryJobName, profileOperationsMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 
 /*
  * A closed thread's summary (ticket #1279): a thread driven closed by a real runner on a fake clock
@@ -58,9 +54,6 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-const isPassCall = (options: TextOptions) =>
-  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
-
 /** A running instance on a fake clock, whose Model answers Turns quietly and the pass from `pass`. */
 async function instance({
   pass = [() => round(text("Asked about opening hours; told 9 to 5."))],
@@ -74,7 +67,7 @@ async function instance({
   const passRounds = [...pass];
   const turns = [...turnRounds];
   const reply: Round = (options) => {
-    if (isPassCall(options)) return (passRounds.shift() ?? pass.at(-1)!)();
+    if (isSummaryPass(options)) return (passRounds.shift() ?? pass.at(-1)!)();
     const next = turns.shift();
     if (!next) return answersOnce(options);
     return typeof next === "function" ? next(options) : next;
@@ -124,7 +117,7 @@ async function instance({
     timer.advance(ms);
     timer.tick();
   };
-  const passCalls = () => fake.calls.filter(isPassCall);
+  const passCalls = () => fake.calls.filter(isSummaryPass);
   const customerOf = async (externalId = "+15550001") => {
     const all = await rpc.representative.customerList();
     return all.find((each) =>

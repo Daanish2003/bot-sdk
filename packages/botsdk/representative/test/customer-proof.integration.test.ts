@@ -25,7 +25,7 @@ import {
   representativeCustomerIdentity,
   representativeVerification,
 } from "../src/server/db/schema";
-import { customerSummaryMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import { noCustomerChannel } from "../src/server/customer-proof";
 import { representativeFeature } from "../src/server/plugin";
 import { proofLastsMs } from "../src/server/verification";
@@ -78,7 +78,7 @@ async function instance(rounds: Round[], held?: Promise<void>, failing?: () => n
     ...fake.adapter,
     chatStream: async function* (options) {
       // The pass after a close isn't what these tests script: it hears nothing and writes nothing.
-      if (JSON.stringify(options.systemPrompts).includes(customerSummaryMarker)) {
+      if (isSummaryPass(options)) {
         yield* round();
         return;
       }

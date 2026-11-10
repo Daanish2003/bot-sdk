@@ -543,6 +543,7 @@ describe("a visitor over the inbound limit", () => {
     // Counters that never refuse, so the session limit (ticket #1337) doesn't stand before this one.
     const { startSession, post, said } = await world([], noCustomerChannel, {
       hit: async () => ({ count: 1, resetMs: 1000 }),
+      reset: async () => {},
     });
     const token = await startSession();
     for (let sent = 0; sent < inboundLimit; sent += 1) {
@@ -561,6 +562,7 @@ describe("a visitor over the inbound limit", () => {
   it("is told to wait until the oldest message of the hour ages out of it", async () => {
     const { startSession, post, timer } = await world([], noCustomerChannel, {
       hit: async () => ({ count: 1, resetMs: 1000 }),
+      reset: async () => {},
     });
     const token = await startSession();
     expect((await post("send", { token, text: "The oldest" })).status).toBe(202);
