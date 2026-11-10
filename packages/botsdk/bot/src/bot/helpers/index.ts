@@ -7,7 +7,7 @@ export {
   unreadPageNote,
 } from "./browser-tools";
 export { noVisionError } from "./computer-use-tool";
-export { askUserTool, askUserToolName, handOffAnswers, helperDone } from "./hand-off";
+export { askUserTool, askUserToolName, handOff, handOffAnswers, helperDone } from "./hand-off";
 export {
   botHelperJob,
   helperStoppedJob,

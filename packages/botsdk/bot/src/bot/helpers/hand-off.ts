@@ -12,6 +12,7 @@ import { computerOf } from "../agent-loop";
 import { botHelperJobName, helperJobKey } from "./helper";
 import { controlHeldScreen } from "./screen-lease";
 import { lockConversation } from "../triggers";
+import { queueRedactionAfterHelper } from "../assignments";
 import {
   appendBotMessage,
   controlOf,
@@ -79,7 +80,7 @@ export function askUserTool(onAsk: (reason: string) => void) {
 export async function handOff(
   deps: BotSdkContext,
   tx: Transaction,
-  helper: { id: string; botId: string },
+  helper: { id: string; botId: string; userId: string },
   reason: string,
   saved: { transcript: ModelMessage[]; usage: MessageUsage | null },
 ): Promise<{ conversationId: string } | null> {
@@ -95,6 +96,8 @@ export async function handOff(
     .returning({ id: botHelper.id });
   if (rows.length === 0) return null;
   await recordBotChange(tx, owner, "helper", helper.id, now);
+  // It has stored its transcript, and may wait for a Done that never comes.
+  await queueRedactionAfterHelper(deps, tx, helper);
   await appendBotMessage(
     deps,
     tx,

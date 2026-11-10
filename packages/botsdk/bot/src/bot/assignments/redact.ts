@@ -44,8 +44,9 @@ import {
  *   starts;
  * - the Check-ins, Helpers and Approvals of a Turn wholly on them, the Triggers those Approvals
  *   left, and any Approval of theirs still open, which is denied so that no action runs for them.
- * It rewrites old history, so the Bot's next call misses the Provider's cache once. A Turn running
- * through it writes its transcript at its end: `queueRedactionAfterTurn` catches that.
+ * It rewrites old history, so the Bot's next call misses the Provider's cache once. A Turn or a Helper
+ * running through it writes its transcript at its end: `queueRedactionAfterTurn` and
+ * `queueRedactionAfterHelper` catch that.
  */
 
 /** The Assignment an `assignment` Trigger's id names, whichever notice it is. */
@@ -632,15 +633,16 @@ async function redactWhatTurnsStarted(
     .from(botHelper)
     .where(inArray(botHelper.id, scope.helpers));
   for (const row of helpers) {
-    if (row.task === redactedText) continue;
-    await tx
-      .update(botHelper)
-      .set({
-        task: redactedText,
-        report: row.report === null ? null : redactedText,
-        transcript: row.transcript && row.transcript.map(redactedEntry),
-      })
-      .where(eq(botHelper.id, row.id));
+    // Compared whole: a Helper running through a redaction writes its report and transcript after it.
+    const redacted = {
+      task: redactedText,
+      report: row.report === null ? null : redactedText,
+      transcript: row.transcript && row.transcript.map(redactedEntry),
+    };
+    if (same(redacted, { task: row.task, report: row.report, transcript: row.transcript })) {
+      continue;
+    }
+    await tx.update(botHelper).set(redacted).where(eq(botHelper.id, row.id));
     await change(conversationOf(row.botId), "helper", row.id);
   }
   await tx
@@ -662,21 +664,32 @@ async function redactWhatTurnsStarted(
     const asked = await reviewOwnerOf(tx, id);
     if (asked) await change(asked.conversationId, "review", id);
   }
-  // Each one's card in the thread holds its summary. A Helper's falls in no Turn's time, so by its id.
+  // Each one's card in the thread holds its summary, and a hand-off's its reason. A Helper's falls in no
+  // Turn's time, so by its id.
   const cards = await tx
     .select({ id: message.id, parts: message.parts, conversationId: message.conversationId })
     .from(message)
     .where(
       and(
         inArray(message.conversationId, scope.conversationIds),
-        inArray(sql`${message.parts}->'parts'->1->'control'->>'reviewId'`, scope.reviews),
+        or(
+          inArray(sql`${message.parts}->'parts'->1->'control'->>'reviewId'`, scope.reviews),
+          and(
+            sql`${message.parts}->'parts'->1->'control'->>'kind' = 'computer'`,
+            inArray(sql`${message.parts}->'parts'->1->'control'->>'helperId'`, scope.helpers),
+          ),
+        ),
         sql`${message.parts}->'parts'->0->>'text' <> ${redactedText}`,
       ),
     );
   for (const card of cards) {
-    const parts = card.parts.parts.map((part) =>
-      part.type === "text" ? { ...part, text: redactedText } : part,
-    );
+    const parts = card.parts.parts.map((part) => {
+      if (part.type === "text") return { ...part, text: redactedText };
+      if (part.type === "control" && (part.control as { kind?: string }).kind === "computer") {
+        return { ...part, control: { ...(part.control as object), reason: redactedText } };
+      }
+      return part;
+    });
     await tx
       .update(message)
       .set({ parts: { ...card.parts, parts } })
@@ -699,31 +712,107 @@ export const assignmentRedactionJob = defineCoreJob({
   },
 });
 
+const approvalTriggerPrefix = approvalTriggerId("");
+const helperTriggerPrefix = helperTriggerKey("");
+
 /**
- * Queues the redaction again for what Turn `turn`, now ended in `tx`, was on and has been redacted: a
- * Turn running through a redaction writes its transcript at its end, and may have sent or assigned
- * since. A job, as `tx` holds this Conversation's lock and the redaction takes others' in id order.
+ * The redacted Assignments behind Turns `turnIds` and Helpers `helperIds`: those a Turn was on, and,
+ * up what woke it or started it, those of the Turn that set it going. The links `assignmentsReached`
+ * follows down, from a Check-in, a Helper or an Approval to the Turn that left it.
  */
-export async function queueRedactionAfterTurn(
+async function redactedAssignmentsBehind(
+  tx: Transaction,
+  start: { turnIds?: string[]; helperIds?: string[] },
+): Promise<string[]> {
+  const found = new Set<string>();
+  const seen = new Set<string>();
+  const unseen = (candidates: (string | null)[]) =>
+    candidates.filter((id): id is string => {
+      if (id === null || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  let turns = unseen(start.turnIds ?? []);
+  let helpers = unseen(start.helperIds ?? []);
+  while (turns.length > 0 || helpers.length > 0) {
+    const triggers = turns.length
+      ? await tx
+          .select({ id: botTrigger.id, source: botTrigger.source, text: botTrigger.text })
+          .from(botTrigger)
+          .where(inArray(botTrigger.turnId, turns))
+      : [];
+    const worked = triggers
+      .filter((row) => row.source === "assignment" && !isRedactedCancelNotice(row.text))
+      .map((row) => row.id.split(":")[1]!);
+    if (worked.length > 0) {
+      const redacted = await tx
+        .select({ id: botAssignment.id })
+        .from(botAssignment)
+        .where(
+          and(
+            inArray(sql`${botAssignment.id}::text`, worked),
+            eq(botAssignment.title, redactedText),
+          ),
+        );
+      for (const row of redacted) found.add(row.id);
+    }
+    const checkIns = triggers.flatMap((row) => checkInOfKey(row.id) ?? []);
+    const setBy = checkIns.length
+      ? await tx
+          .select({ turnId: botCheckIn.createdByTurnId })
+          .from(botCheckIn)
+          .where(inArray(botCheckIn.id, checkIns))
+      : [];
+    const reviews = triggers.flatMap((row) =>
+      row.id.startsWith(approvalTriggerPrefix) ? [row.id.slice(approvalTriggerPrefix.length)] : [],
+    );
+    const asked = reviews.length
+      ? await tx
+          .select({ turnId: botReview.turnId, helperId: botReview.helperId })
+          .from(botReview)
+          .where(inArray(botReview.id, reviews))
+      : [];
+    const reported = triggers.flatMap((row) =>
+      row.id.startsWith(helperTriggerPrefix) ? [row.id.slice(helperTriggerPrefix.length)] : [],
+    );
+    const nextHelpers = [...helpers, ...unseen([...reported, ...asked.map((row) => row.helperId)])];
+    const started = nextHelpers.length
+      ? await tx
+          .select({ turnId: botHelper.startedByTurnId })
+          .from(botHelper)
+          .where(inArray(botHelper.id, nextHelpers))
+      : [];
+    turns = unseen([...setBy, ...asked, ...started].map((row) => row.turnId));
+    helpers = [];
+  }
+  return [...found];
+}
+
+async function queuePass(
+  deps: BotSdkContext,
+  tx: Transaction,
+  userId: string,
+  start: { turnIds?: string[]; helperIds?: string[] },
+) {
+  const ids = await redactedAssignmentsBehind(tx, start);
+  if (ids.length > 0) await deps.runner.enqueueIn(tx, redactionJobName, { userId, ids });
+}
+
+/**
+ * Queues the redaction again for the redacted Assignments behind Turn `turn`, now ended in `tx`: a
+ * Turn running through a redaction writes its transcript at its end, and may have sent, assigned or
+ * asked for an Approval since. A job, as `tx` holds this Conversation's lock and the redaction takes
+ * others' in id order.
+ */
+export const queueRedactionAfterTurn = (
   deps: BotSdkContext,
   tx: Transaction,
   turn: { id: string; userId: string },
-): Promise<void> {
-  const ofTurn = await tx
-    .select({ id: botAssignment.id, text: botTrigger.text })
-    .from(botTrigger)
-    .innerJoin(botAssignment, sql`${botAssignment.id}::text = ${assignmentIdOfTrigger}`)
-    .where(
-      and(
-        eq(botTrigger.turnId, turn.id),
-        eq(botTrigger.source, "assignment"),
-        eq(botAssignment.title, redactedText),
-      ),
-    );
-  const worked = ofTurn.filter((row) => !isRedactedCancelNotice(row.text));
-  if (worked.length === 0) return;
-  await deps.runner.enqueueIn(tx, redactionJobName, {
-    userId: turn.userId,
-    ids: [...new Set(worked.map((row) => row.id))],
-  });
-}
+): Promise<void> => queuePass(deps, tx, turn.userId, { turnIds: [turn.id] });
+
+/** `queueRedactionAfterTurn` for Helper `helper`, now ended or stopped, once its transcript is stored. */
+export const queueRedactionAfterHelper = (
+  deps: BotSdkContext,
+  tx: Transaction,
+  helper: { id: string; userId: string },
+): Promise<void> => queuePass(deps, tx, helper.userId, { helperIds: [helper.id] });
