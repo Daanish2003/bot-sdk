@@ -1355,6 +1355,100 @@ describe("a Turn on an untrusted Assignment", () => {
   );
 
   it(
+    "gives a user-only Turn's pass the user's line and none of the Bot's, while the Bot holds the Assignment",
+    async () => {
+      const made = assigner();
+      const { client, user, botIds, fake } = await botsWith(
+        [round(), round(text("BOT-SAID-THIS")), ops()],
+        { features: [made.feature] },
+      );
+      const [ada] = botIds as [string];
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+
+      await send(client, ada, "I like oat milk");
+      await passesEnded(1);
+
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("I like oat milk");
+      expect(shown).not.toContain("BOT-SAID-THIS");
+    },
+    timeout,
+  );
+
+  it(
+    "reads the Bot's lines on a user-only Turn once the Assignment ended before the Turn started",
+    async () => {
+      const made = assigner();
+      const { client, user, botIds, fake } = await botsWith(
+        [
+          (call) =>
+            round(
+              runs("finish_assignment", {
+                id: assignmentIdIn(call),
+                status: "done",
+                outcome: "OUTCOME-WITH-DETAILS",
+              }),
+            ),
+          round(),
+          round(text("BOT-SAID-THIS")),
+          ops(),
+        ],
+        { features: [made.feature] },
+      );
+      const [ada] = botIds as [string];
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      await send(client, ada, "I like oat milk");
+      await passesEnded(1);
+
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("I like oat milk");
+      expect(shown).toContain("BOT-SAID-THIS");
+    },
+    timeout,
+  );
+
+  it(
+    "keeps a Routine's Turn at the whole Turn while the Bot holds the Assignment",
+    async () => {
+      const made = assigner();
+      const { deps, user, botIds, fake } = await botsWith(
+        [round(), round(text("BOT-SAID-THIS")), ops()],
+        { features: [made.feature] },
+      );
+      const [ada] = botIds as [string];
+      await made.create(user.id, ada);
+      await expect.poll(() => statuses(ada), poll).toEqual(["complete"]);
+
+      const [row] = await getTestDb()
+        .select({ conversationId: bot.conversationId })
+        .from(bot)
+        .where(eq(bot.id, ada));
+      await getTestDb().transaction((tx) =>
+        receive(deps, tx, {
+          id: `routine:${uuidv7()}`,
+          botId: ada,
+          conversationId: row!.conversationId,
+          source: "routine",
+          channel: "schedule",
+          text: "ROUTINE-PROMPT",
+          receivedAt: deps.clock(),
+        }),
+      );
+      deps.runner.wake();
+      await passesEnded(1);
+
+      const shown = userTextOf(fake.calls.at(-1));
+      expect(shown).toContain("ROUTINE-PROMPT");
+      expect(shown).toContain("BOT-SAID-THIS");
+    },
+    timeout,
+  );
+
+  it(
     "still runs a pass with the Bot's lines for a Turn of only the user's Message",
     async () => {
       const { client, botIds, fake } = await botsWith([round(text("BOT-SAID-THIS")), ops()]);

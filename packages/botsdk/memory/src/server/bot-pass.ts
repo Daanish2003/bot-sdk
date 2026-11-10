@@ -120,9 +120,10 @@ const passMayRead = ({ source, channel }: { source: string; channel: string }) =
  *   work (a Check-in, a Helper's report, an answered Approval, a hand-off) while it holds an
  *   untrusted Assignment that was not ended before the Turn started, or took a hand-off from a Turn
  *   that touched untrusted work (`fromUntrusted`, whoever is in its Room now). No pass reads it.
- * - `user`: the Turn took such a Trigger beside others. The pass reads the user's lines and the
- *   trusted Triggers, and no line of the Bot's and no Check-in, Helper or Approval Trigger, which
- *   may be about that Assignment.
+ * - `user`: the Turn took such a Trigger beside others, or the user's Messages with no Bot's own work
+ *   while the Bot holds such an Assignment (#1323). The pass reads the user's lines and the trusted
+ *   Triggers, and no line of the Bot's and no Check-in, Helper or Approval Trigger, which may be about
+ *   that Assignment.
  * - `all`: as before.
  */
 async function passScope(
@@ -141,8 +142,10 @@ async function passScope(
     return triggers.some(passMayRead) ? "user" : "skip";
   }
   const followsOn = triggers.some((each) => followOnSources.includes(each.source));
-  if (!followsOn) return "all";
-  const restricted = triggers.some((each) => each.source === "user") ? "user" : "skip";
+  const tookUser = triggers.some((each) => each.source === "user");
+  // Any other Trigger with no follow-on, such as a Routine's, isn't about the Assignment.
+  if (!followsOn && !tookUser) return "all";
+  const restricted = tookUser ? "user" : "skip";
   if (triggers.some((each) => each.fromUntrusted)) return restricted;
   const [held] = await db
     .select({ id: botAssignment.id })
