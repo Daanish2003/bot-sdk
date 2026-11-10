@@ -52,8 +52,13 @@ export async function receiveStranger(
     message: text,
   };
   // It can never be stored, so it is dropped here: a throw would have the platform send it again.
-  if (!customerMessage.safeParse(given).success) {
-    services.logger.error(`A ${message.channel} message that can't be stored was dropped`);
+  const parsed = customerMessage.safeParse(given);
+  if (!parsed.success) {
+    // Which fields and why, never their values: those are the message and the sender's address.
+    const issues = parsed.error.issues.map(({ path, code }) => `${path.join(".")}: ${code}`);
+    services.logger.error(
+      `A ${message.channel} message that can't be stored was dropped (${issues.join(", ")})`,
+    );
     return;
   }
   await receiveCustomerMessage(services, given);

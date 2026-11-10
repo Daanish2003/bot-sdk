@@ -61,7 +61,10 @@ afterEach(async () => {
  * A running instance with listeners over the fake platform, and a Model that says `says` in turn.
  * With `webhook`, the platform posts to each account's webhook route instead (ticket #1355).
  */
-async function world(says: string[] = [], { webhook = false }: { webhook?: boolean } = {}) {
+async function world(
+  says: string[] = [],
+  { webhook = false, logger }: { webhook?: boolean; logger?: Pick<Console, "error"> } = {},
+) {
   const ban = { on: false };
   const channel = fakeMessagingAdapter({ webhook });
   const fake = createFakeAdapter({ rounds: says.flatMap((text) => [replies(text), round()]) });
@@ -82,6 +85,7 @@ async function world(says: string[] = [], { webhook = false }: { webhook?: boole
     adapterFor: () => fake.adapter,
     clock: timer.clock.now,
     memory: false,
+    ...(logger && { logger }),
   });
   made = deps;
   await jobs.start();
@@ -222,8 +226,8 @@ describe("a stranger on a Representative's account", () => {
   });
 
   /** A webhook world whose feature's `onStranger` throws on a message whose text is in `failing`. */
-  async function failingWebhook() {
-    const made = await world([], { webhook: true });
+  async function failingWebhook(logger?: Pick<Console, "error">) {
+    const made = await world([], { webhook: true, logger });
     await made.representativeOn("1:a");
     const [account] = await getTestDb()
       .select({ id: channelAccount.id })
@@ -301,6 +305,49 @@ describe("a stranger on a Representative's account", () => {
     failing.clear();
     expect((await post(update)).status).toBe(202);
     expect(await customerTexts()).toEqual(["Slow failure"]);
+  });
+
+  it("stops renewing a store that hangs, so a retry can still store the update (#1363)", async () => {
+    let shift = 0;
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + shift);
+    try {
+      const { holdNext, post, postElsewhere, customerTexts } = await failingWebhook();
+      const update = [{ sourceId: "97", text: "Hung" }];
+
+      const release = holdNext();
+      const first = post(update);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Past the most a store may hold its id; then long enough for a renewal's turn to come round.
+      shift = 31_000;
+      await new Promise((resolve) => setTimeout(resolve, 4_000));
+
+      expect((await postElsewhere(update)).status).toBe(202);
+      expect(await customerTexts()).toEqual(["Hung"]);
+      release();
+      await first;
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("logs which fields kept an unstorable update out, without its text or address (#1363)", async () => {
+    const logged: string[] = [];
+    const { post, customerTexts } = await failingWebhook({
+      error: (...args: unknown[]) => logged.push(args.map(String).join(" ")),
+    });
+    const address = "1".repeat(600);
+
+    const response = await post([
+      { sourceId: "98", text: "Private words", sender: { id: address, handle: "@long" } },
+    ]);
+
+    expect(response.status).toBe(202);
+    expect(await customerTexts()).toEqual([]);
+    const line = logged.find((entry) => entry.includes("can't be stored"));
+    expect(line).toContain("externalId");
+    expect(line).not.toContain("Private words");
+    expect(line).not.toContain(address);
   });
 
   it("drops an update that can never be stored, and still answers 202 for the rest (#1363)", async () => {

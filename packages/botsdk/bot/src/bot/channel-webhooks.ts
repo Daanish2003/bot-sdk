@@ -29,6 +29,14 @@ const storingMs = 10 * 1000;
 /** How often a running store renews its hold: often enough that a late renewal doesn't lose it. */
 const renewMs = storingMs / 3;
 
+/**
+ * The longest a store renews its hold; after it, the hold lapses as a crashed store's does. Fifteen
+ * times the 2 seconds Telnyx gives a webhook, so a store only waiting on a lock keeps its id. Not
+ * longer, because a hung store would answer every platform retry 503 until they ran out, and a second
+ * copy is better than none.
+ */
+const maxHoldMs = 30 * 1000;
+
 /** A done id's window: `seenMs`, plus the end of it that a hit would read as being stored. */
 const doneMs = seenMs + storingMs;
 
@@ -164,8 +172,8 @@ async function settle(sdk: BotSdkContext, platform: string, key: string, windowM
 }
 
 /**
- * Runs `store` while renewing its hold on `key`, so a store that is only slow keeps the id and a
- * copy can't start a second one. Says when the hold was last renewed. Every renewal has landed by the
+ * Runs `store` while renewing its hold on `key`, up to `maxHoldMs`, so a store that is only slow
+ * keeps the id and a copy can't start a second one. Says when the hold was last renewed. Every renewal has landed by the
  * time this returns or throws, so none overwrites how the attempt then settles the id.
  */
 async function holding(
@@ -174,9 +182,14 @@ async function holding(
   key: string,
   store: () => Promise<void>,
 ): Promise<{ failure: { error: unknown } | null; heldAt: number }> {
-  let heldAt = Date.now();
+  const began = Date.now();
+  let heldAt = began;
   let renewals = Promise.resolve();
   const timer = setInterval(() => {
+    if (Date.now() - began >= maxHoldMs) {
+      clearInterval(timer);
+      return;
+    }
     renewals = renewals.then(async () => {
       const at = Date.now();
       if (await settle(sdk, platform, key, storingMs)) heldAt = at;
