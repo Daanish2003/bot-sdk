@@ -17,7 +17,7 @@ import {
 import { computerOf } from "../agent-loop";
 import { helperStoppedError } from "./hand-off";
 import { openHeldScreen, ScreenHolderEndedError } from "./helper";
-import { controlHeldScreen } from "./screen-lease";
+import { controlHeldScreen, ScreenBusyError } from "./screen-lease";
 
 /**
  * How long a live-view link opens the Screen (#597): a page and its socket must start within it,
@@ -132,6 +132,12 @@ const endedError = (holder: ScreenHolder) =>
     ? rpcError("CONFLICT", "error.demonstrationEnded", demonstrationEndedError)
     : rpcError("CONFLICT", "error.helperStopped", helperStoppedError);
 
+/** A Screen whose slot stayed held, as the router's error; any other failure as it is. */
+const busyAsRpcError = (caught: unknown) =>
+  caught instanceof ComputerOperationError && caught.cause instanceof ScreenBusyError
+    ? rpcError("CONFLICT", "error.screenBusy", caught.message)
+    : caught;
+
 /** `heldScreen`, with its refusals as the router's errors. */
 async function ownedScreen(sdk: BotSdkContext, userId: string, holder: ScreenHolder) {
   const screen = await heldScreen(sdk, userId, holder);
@@ -190,7 +196,9 @@ export async function screenView(
     const control = "demonstrationId" in holder ? "control" : undefined;
     await openHeldScreen(sdk, { id, userId, slot }, botId, computer, control).catch(
       (refused: unknown) => {
-        throw refused instanceof ScreenHolderEndedError ? endedError(holder) : refused;
+        throw refused instanceof ScreenHolderEndedError
+          ? endedError(holder)
+          : busyAsRpcError(refused);
       },
     );
     return computer.screenUrls(slot);
@@ -213,7 +221,9 @@ export async function screenControl(
   mode: ScreenControl,
 ): Promise<void> {
   const { slot } = await ownedScreen(sdk, userId, { helperId });
-  await controlHeldScreen(sdk, { id: helperId, userId, slot }, mode);
+  await controlHeldScreen(sdk, { id: helperId, userId, slot }, mode).catch((caught: unknown) => {
+    throw busyAsRpcError(caught);
+  });
 }
 
 /** Where a proxied request goes: the Screen's noVNC, and the headers that let it through. */
