@@ -10,6 +10,7 @@ import { rpcError } from "../../rpc-error";
 import type { MessageUsage } from "../../models/shared/usage";
 import { computerOf } from "../agent-loop";
 import { botHelperJobName, helperJobKey } from "./helper";
+import { controlHeldScreen } from "./screen-lease";
 import { lockConversation } from "../triggers";
 import {
   appendBotMessage,
@@ -222,11 +223,11 @@ export async function helperDone(
   await hintChanged(deps, resumed.conversationId);
   // The user's control ends with the hand-off (#597), even when their client didn't give it back.
   if (resumed.screen !== null) {
-    await computerOf(deps, userId)
-      .setScreenControl(resumed.screen, "view")
-      .catch((caught: unknown) => {
+    await controlHeldScreen(deps, { id: helperId, userId, slot: resumed.screen }, "view").catch(
+      (caught: unknown) => {
         deps.logger.error("Done couldn't give the Screen back to the Bot", caught);
-      });
+      },
+    );
   }
   return { status: "running" };
 }

@@ -31,6 +31,7 @@ import {
   hasLiveDemonstration,
   hasRunningHelper,
   handleScreenRequest,
+  screenLeaseJob,
   stopUserHelpers,
 } from "./helpers";
 
@@ -64,6 +65,7 @@ export const botJobs = [
   ...demonstrationJobs,
   botHelperJob,
   helperStoppedJob,
+  screenLeaseJob,
   deliveryJob,
   pageDeliveryJob,
   approvalExpiryJob,

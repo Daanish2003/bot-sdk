@@ -3,6 +3,7 @@
 # noVNC. Usage: ai-chat-screen start <slot> <profileKey> | stop <slot> | view <slot> | control <slot>
 # Slot N (1 to 4) is display :N, VNC on 5900+N, noVNC on 6080+N, Chromium's DevTools on 9222+N.
 # `start` reads the link's token from /tmp/screens/<slot>/token (the plugin writes it first).
+# `start` and `stop` take a per-slot lock, so one slot's run one at a time even if the database's is lost.
 set -eu
 
 action=${1:-}
@@ -37,7 +38,8 @@ stop() {
 launch() {
   name=$1
   shift
-  setsid "$@" >"$dir/$name.log" 2>&1 < /dev/null &
+  # Fd 9 is the slot's lock: a long-lived child must not keep it held after the script ends.
+  setsid "$@" >"$dir/$name.log" 2>&1 < /dev/null 9>&- &
   echo $! >"$dir/$name.pid"
 }
 
@@ -65,11 +67,20 @@ start_screen() {
   return 1
 }
 
+# Held until this script exits; the lock file sits beside the slot's directory, which `stop` clears.
+lock_slot() {
+  mkdir -p /tmp/screens
+  exec 9>"/tmp/screens/$slot.lock"
+  flock 9
+}
+
 case "$action" in
   start)
+    lock_slot
     start_screen "${3:-}" || { code=$?; stop; exit "$code"; }
     ;;
   stop)
+    lock_slot
     stop
     ;;
   view | control)
