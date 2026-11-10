@@ -1008,6 +1008,147 @@ describe("deleting a Customer", () => {
       },
     );
 
+    describe("a hand-off of theirs on another Customer's thread", () => {
+      /** Bob handed off, and it sits on Ada's thread, as a merge since undone leaves one. */
+      async function handedOff() {
+        const owner = await instance({ turnRounds: [handsOff] });
+        const { rpc, say, customerAt, settle, context, user, botId } = owner;
+        await say("Bob wants a refund.", bobNumber);
+        await say("Ada speaks.", adaNumber);
+        await settle();
+        const [ada, bob] = [await customerAt(adaNumber), await customerAt(bobNumber)];
+        const [{ assignmentId }] = (await handOffsAt(bobNumber)) as [
+          typeof representativeHandOff.$inferSelect,
+        ];
+        const [thread] = await threadsOfCustomers([ada.id]);
+        await getTestDb()
+          .update(representativeHandOff)
+          .set({ customerId: ada.id, threadId: thread!.id, verified: false })
+          .where(eq(representativeHandOff.assignmentId, assignmentId));
+        const [identity] = bob.identities;
+        const correct = () =>
+          rpc.representative.customerUpdateIdentity({
+            id: bob.id,
+            identityId: identity!.id,
+            channel: identity!.channel,
+            externalId: correctedNumber,
+          });
+        const deliver = () =>
+          context().db.transaction((tx) =>
+            deliverHandOffResult(context(), tx, {
+              assignmentId,
+              userId: user.id,
+              botId,
+              status: "done",
+              result: { outcome: "Done.", forCustomer: "Your refund is on its way." },
+            }),
+          );
+        return {
+          ...owner,
+          ada,
+          bob,
+          thread: thread!,
+          assignmentId,
+          identity: identity!,
+          correct,
+          deliver,
+        };
+      }
+
+      const handOffOf = async (assignmentId: string) =>
+        (
+          await getTestDb()
+            .select()
+            .from(representativeHandOff)
+            .where(eq(representativeHandOff.assignmentId, assignmentId))
+        )[0];
+
+      it("finds it, and redacts its Assignment", async () => {
+        const { bob, assignmentId, correct, context, user } = await handedOff();
+        await correct();
+
+        const { assignmentIds } = await deleteCustomer(context(), user.id, bob.id);
+
+        expect(assignmentIds).toContain(assignmentId);
+        expect(await handOffOf(assignmentId)).toBeUndefined();
+      });
+
+      it("stores its result where they now are, so the delete takes that too", async () => {
+        const { ada, bob, assignmentId, correct, deliver, context, user } = await handedOff();
+        await correct();
+        await deliver();
+
+        const [result] = await getTestDb()
+          .select({
+            externalId: representativeThreadMessage.externalId,
+            verified: representativeThreadMessage.verified,
+          })
+          .from(representativeThreadMessage)
+          .where(eq(representativeThreadMessage.assignmentId, assignmentId));
+        expect(result).toEqual({ externalId: correctedNumber, verified: false });
+
+        await deleteCustomer(context(), user.id, bob.id);
+
+        const left = await wordsOn([ada.id]);
+        expect(left).not.toContain("Your refund is on its way.");
+        expect(left).toContain("Ada speaks.");
+      });
+
+      it("wakes no Turn for its result when the address they now have has opted out", async () => {
+        const { thread, identity, correct, deliver } = await handedOff();
+        await correct();
+        await getTestDb()
+          .update(representativeCustomerIdentity)
+          .set({ optedOutAt: new Date() })
+          .where(eq(representativeCustomerIdentity.id, identity.id));
+
+        await deliver();
+
+        const [after] = await threadsOfCustomers([thread.customerId]);
+        expect(after!.waitingSince).toBeNull();
+      });
+
+      it("leaves it to them once the old address is someone else's", async () => {
+        const { assignmentId, correct, say, customerAt, context, user } = await handedOff();
+        await correct();
+        await say("Carol has that number now.", bobNumber);
+        const carol = await customerAt(bobNumber);
+
+        const { assignmentIds } = await deleteCustomer(context(), user.id, carol.id);
+
+        expect(assignmentIds).not.toContain(assignmentId);
+        expect((await handOffOf(assignmentId))?.externalId).toBe(correctedNumber);
+      });
+
+      it("keeps the address of a hand-off on their own thread", async () => {
+        const { bob, assignmentId, correct } = await handedOff();
+        await getTestDb()
+          .update(representativeHandOff)
+          .set({ customerId: bob.id })
+          .where(eq(representativeHandOff.assignmentId, assignmentId));
+
+        await correct();
+
+        expect((await handOffOf(assignmentId))?.externalId).toBe(bobNumber);
+      });
+
+      it("keeps the address of another owner's hand-off", async () => {
+        const { correct } = await handedOff();
+        const other = await instance({ turnRounds: [handsOff] });
+        await other.say("Someone else's Customer.", bobNumber);
+        await other.settle();
+        const theirs = await other.customerAt(bobNumber);
+
+        await correct();
+
+        const [kept] = await getTestDb()
+          .select({ externalId: representativeHandOff.externalId })
+          .from(representativeHandOff)
+          .where(eq(representativeHandOff.customerId, theirs.id));
+        expect(kept?.externalId).toBe(bobNumber);
+      });
+    });
+
     it("takes the address a thread last heard them at from another Customer's thread", async () => {
       const owner = await instance({ turnRounds: [handsOff, answers, () => round()] });
       const { rpc, say, heard, customerAt, settle } = owner;
