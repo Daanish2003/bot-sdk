@@ -546,6 +546,24 @@ describe("a messaging Channel's webhook route", () => {
     }
   });
 
+  it("still drops a resend in the last seconds of the day it is remembered (#1363)", async () => {
+    let shift = 0;
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + shift);
+    try {
+      const { fake, conversationId, url, post } = await webhookBot();
+      const request = () => fake.webhookRequest(url, token, [{ sourceId: "12", text: "Hi" }]);
+      expect((await post(request())).status).toBe(202);
+
+      shift = 24 * 60 * 60 * 1000 - 5_000;
+
+      expect((await post(request())).status).toBe(202);
+      expect(await triggersOf(conversationId)).toHaveLength(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("keeps the instance's stop waiting for a request still being stored (#1363)", async () => {
     const store = heldStore();
     const { fake, deps, conversationId, url, post } = await webhookBot({

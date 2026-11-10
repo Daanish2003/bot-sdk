@@ -83,7 +83,7 @@ async function startTurn(services: Services, tx: Transaction, threadId: string, 
   );
 }
 
-const customerMessage = z.object({
+export const customerMessage = z.object({
   representativeId: z.uuid(),
   /** Who sent it. The Customer's id is code's, from this identity: a Model never names one. */
   channel: z.string().min(1).max(64).refine(noNul),

@@ -234,23 +234,88 @@ describe("a stranger on a Representative's account", () => {
     )!.feature;
     const onStranger = held.onStranger!;
     const failing = new Set<string>();
-    held.onStranger = (message, context) =>
-      failing.has(message.text)
-        ? Promise.reject(new Error("the database went away"))
-        : onStranger(message, context);
-    const chat = createTestChat({ deps: made.deps });
-    const post = (updates: { sourceId: string; text: string }[]) =>
-      chat.fetch(
-        made.channel.webhookRequest(
-          `https://host.example/api/chat/channels/fake/${account!.id}`,
-          "1:a",
-          updates,
-        ),
+    let gate: Promise<void> | null = null;
+    held.onStranger = async (message, context) => {
+      const waiting = gate;
+      gate = null;
+      await waiting;
+      if (failing.has(message.text)) throw new Error("the database went away");
+      await onStranger(message, context);
+    };
+    /** Makes the next store wait until the returned function is called. */
+    const holdNext = () => {
+      let release!: () => void;
+      gate = new Promise((resolve) => (release = resolve));
+      return release;
+    };
+    type Updates = Parameters<typeof made.channel.webhookRequest>[2];
+    const request = (updates: Updates) =>
+      made.channel.webhookRequest(
+        `https://host.example/api/chat/channels/fake/${account!.id}`,
+        "1:a",
+        updates,
       );
+    const chat = createTestChat({ deps: made.deps });
+    const post = (updates: Updates) => chat.fetch(request(updates));
+    /** Posts through a handler of its own: another instance, with its own in-process dedupe. */
+    const postElsewhere = (updates: Updates) =>
+      createTestChat({ deps: made.deps }).fetch(request(updates));
     const customerTexts = async () =>
       (await messages()).filter(({ author }) => author === "customer").map(({ text }) => text);
-    return { ...made, failing, post, customerTexts };
+    return { ...made, failing, holdNext, post, postElsewhere, customerTexts };
   }
+
+  const pastTheHold = () => new Promise((resolve) => setTimeout(resolve, 10_500));
+
+  it("keeps an update's id through a store slower than its hold, so copies aren't stored twice (#1363)", async () => {
+    const { holdNext, post, postElsewhere, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "90", text: "Slow" }];
+
+    const release = holdNext();
+    const first = post(update);
+    await pastTheHold();
+    const copies = await Promise.all([postElsewhere(update), postElsewhere(update)]);
+    expect(copies.map(({ status }) => status)).toEqual([503, 503]);
+
+    release();
+    expect((await first).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Slow"]);
+
+    // Nothing renews the id once it is settled: a resend later still finds it done.
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    expect((await postElsewhere(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Slow"]);
+  });
+
+  it("lets go of the id when a store slower than its hold fails, so the retry is stored (#1363)", async () => {
+    const { failing, holdNext, post, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "91", text: "Slow failure" }];
+
+    const release = holdNext();
+    failing.add("Slow failure");
+    const first = post(update);
+    await pastTheHold();
+    release();
+    expect((await first).status).toBe(503);
+
+    failing.clear();
+    expect((await post(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Slow failure"]);
+  });
+
+  it("drops an update that can never be stored, and still answers 202 for the rest (#1363)", async () => {
+    const { post, customerTexts } = await failingWebhook();
+    const updates = [
+      // Past what an identity can hold, however often it is sent.
+      { sourceId: "95", text: "Never", sender: { id: "1".repeat(600), handle: "@long" } },
+      { sourceId: "96", text: "Good" },
+    ];
+
+    expect((await post(updates)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Good"]);
+    expect((await post(updates)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Good"]);
+  });
 
   it("answers 503 when a held account's update can't be stored, and stores its retry once (#1363)", async () => {
     const { failing, post, customerTexts } = await failingWebhook();
