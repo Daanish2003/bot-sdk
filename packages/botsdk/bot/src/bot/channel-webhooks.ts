@@ -19,11 +19,12 @@ import { receiveMessaging } from "./turn";
 const seenMs = 24 * 60 * 60 * 1000;
 
 /**
- * How long an update's id is held while it is stored. Far past what storing takes, and short so that
- * a copy resent after a crash mid-store finds it lapsed and is stored. The two windows are how an
- * id's state is told from one hit: one this short is being stored, the `seenMs` one is done.
+ * How long an update's id is held while it is stored. Well past what storing takes (a transaction,
+ * inside a platform's deadline of seconds), and short so that a copy resent after a crash mid-store
+ * finds it lapsed and is stored: a second copy is better than none. The two windows are how an id's
+ * state is told from one hit: one this short is being stored, the `seenMs` one is done.
  */
-const storingMs = 30 * 1000;
+const storingMs = 10 * 1000;
 
 /** The largest request body a webhook route reads; a larger one is answered 413 unread. */
 const bodyLimit = 256 * 1024;
@@ -179,12 +180,14 @@ async function storeAll(
     } else if (claimed === "storing") {
       done = false;
     } else {
+      const began = Date.now();
       try {
-        await receiveMessaging(sdk, adapter, account, update, appUrl, onRejected, "raise");
+        await receiveMessaging(sdk, adapter, account, update, appUrl, onRejected, "webhook");
         await settle(sdk, account.platform, key, seenMs);
       } catch (error) {
         sdk.logger.error(`A ${adapter.id} webhook update couldn't be stored`, error);
-        await settle(sdk, account.platform, key);
+        // Past its window the id is no longer this attempt's to let go of: another may hold it.
+        if (Date.now() - began < storingMs) await settle(sdk, account.platform, key);
         done = false;
       }
     }

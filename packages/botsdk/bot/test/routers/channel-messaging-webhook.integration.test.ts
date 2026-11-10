@@ -477,6 +477,75 @@ describe("a messaging Channel's webhook route", () => {
     expect(await triggersOf(conversationId)).toHaveLength(1);
   });
 
+  it("shares the first attempt's failure with a copy when the counters are down (#1363)", async () => {
+    let fail: (() => void) | null = null;
+    const gate = new Promise<boolean>((_resolve, reject) => {
+      fail = () => reject(new Error("the database went away"));
+    });
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    let held = true;
+    const counters = createMemoryCounters();
+    counters.hit = () => Promise.reject(new Error("redis went away"));
+    const { fake, conversationId, url, deps } = await webhookBot({
+      counters,
+      isBlocked: async () => {
+        if (!held) return false;
+        entered();
+        return gate;
+      },
+    });
+    const request = () => fake.webhookRequest(url, token, [{ sourceId: "8", text: "Hi" }]);
+    // One handler, so the copy shares the first attempt's in-process dedupe.
+    const chat = createTestChat({ deps });
+
+    const first = chat.fetch(request());
+    await reached;
+    let copyAnswered = false;
+    const copy = chat.fetch(request()).then((response) => {
+      copyAnswered = true;
+      return response;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Were the copy already answered 202, the first attempt's failure below would have no retry.
+    expect(copyAnswered).toBe(false);
+
+    held = false;
+    fail!();
+    expect([(await first).status, (await copy).status]).toEqual([503, 503]);
+
+    expect((await chat.fetch(request())).status).toBe(202);
+    expect(await triggersOf(conversationId)).toHaveLength(1);
+  });
+
+  it("leaves the id alone when a failing attempt outlasted its hold on it (#1363)", async () => {
+    let shift = 0;
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + shift);
+    try {
+      let fail = true;
+      const { fake, url, post } = await webhookBot({
+        isBlocked: async () => {
+          if (fail) {
+            shift = 20_000;
+            throw new Error("the database went away");
+          }
+          return false;
+        },
+      });
+      const request = () => fake.webhookRequest(url, token, [{ sourceId: "11", text: "Hi" }]);
+
+      expect((await post(request())).status).toBe(503);
+      shift = 0;
+      fail = false;
+
+      // The id wasn't this attempt's to release any more, so a later hit still finds it held.
+      expect((await post(request())).status).toBe(503);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("keeps the instance's stop waiting for a request still being stored (#1363)", async () => {
     const store = heldStore();
     const { fake, deps, conversationId, url, post } = await webhookBot({
