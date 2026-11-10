@@ -19,12 +19,18 @@ import { receiveMessaging } from "./turn";
 const seenMs = 24 * 60 * 60 * 1000;
 
 /**
- * How long an update's id is held while it is stored. Well past what storing takes (a transaction,
- * inside a platform's deadline of seconds), and short so that a copy resent after a crash mid-store
- * finds it lapsed and is stored: a second copy is better than none. The two windows are how an id's
- * state is told from one hit: one this short is being stored, the `seenMs` one is done.
+ * How long an update's id is held while it is stored, renewed for as long as the store runs. Short
+ * so that a copy resent after a crash mid-store finds it lapsed and is stored: a second copy is better
+ * than none. The two windows are how an id's state is told from one hit: one this short is being
+ * stored, a longer one is done.
  */
 const storingMs = 10 * 1000;
+
+/** How often a running store renews its hold: often enough that a late renewal doesn't lose it. */
+const renewMs = storingMs / 3;
+
+/** A done id's window: `seenMs`, plus the end of it that a hit would read as being stored. */
+const doneMs = seenMs + storingMs;
 
 /** The largest request body a webhook route reads; a larger one is answered 413 unread. */
 const bodyLimit = 256 * 1024;
@@ -146,13 +152,45 @@ async function claim(
   }
 }
 
-/** Records how an attempt on an update ended. Never throws: the id's short window still lapses. */
+/** Replaces an id's window, and says whether it did. Never throws: its short window still lapses. */
 async function settle(sdk: BotSdkContext, platform: string, key: string, windowMs?: number) {
   try {
     await sdk.counters.reset(key, windowMs);
+    return true;
   } catch (error) {
     sdk.logger.error(`Settling a ${platform} update's id failed`, error);
+    return false;
   }
+}
+
+/**
+ * Runs `store` while renewing its hold on `key`, so a store that is only slow keeps the id and a
+ * copy can't start a second one. Says when the hold was last renewed. Every renewal has landed by the
+ * time this returns or throws, so none overwrites how the attempt then settles the id.
+ */
+async function holding(
+  sdk: BotSdkContext,
+  platform: string,
+  key: string,
+  store: () => Promise<void>,
+): Promise<{ failure: { error: unknown } | null; heldAt: number }> {
+  let heldAt = Date.now();
+  let renewals = Promise.resolve();
+  const timer = setInterval(() => {
+    renewals = renewals.then(async () => {
+      const at = Date.now();
+      if (await settle(sdk, platform, key, storingMs)) heldAt = at;
+    });
+  }, renewMs);
+  let failure: { error: unknown } | null = null;
+  try {
+    await store();
+  } catch (error) {
+    failure = { error };
+  }
+  clearInterval(timer);
+  await renewals;
+  return { failure, heldAt };
 }
 
 /**
@@ -180,15 +218,16 @@ async function storeAll(
     } else if (claimed === "storing") {
       done = false;
     } else {
-      const began = Date.now();
-      try {
-        await receiveMessaging(sdk, adapter, account, update, appUrl, onRejected, "webhook");
-        await settle(sdk, account.platform, key, seenMs);
-      } catch (error) {
-        sdk.logger.error(`A ${adapter.id} webhook update couldn't be stored`, error);
+      const { failure, heldAt } = await holding(sdk, account.platform, key, () =>
+        receiveMessaging(sdk, adapter, account, update, appUrl, onRejected, "webhook"),
+      );
+      if (failure) {
+        sdk.logger.error(`A ${adapter.id} webhook update couldn't be stored`, failure.error);
         // Past its window the id is no longer this attempt's to let go of: another may hold it.
-        if (Date.now() - began < storingMs) await settle(sdk, account.platform, key);
+        if (Date.now() - heldAt < storingMs) await settle(sdk, account.platform, key);
         done = false;
+      } else {
+        await settle(sdk, account.platform, key, doneMs);
       }
     }
   }
