@@ -371,6 +371,25 @@ export async function updateIdentity(
             inArray(decision.threadId, othersThreads),
           ),
         );
+      // By its Customer, as a hand-off outlives its thread. Its result goes to the new address too.
+      const handOff = representativeHandOff;
+      await tx
+        .update(handOff)
+        .set({ channel, externalId })
+        .where(
+          and(
+            eq(handOff.channel, held.channel),
+            eq(handOff.externalId, held.externalId),
+            ne(handOff.customerId, id),
+            inArray(
+              handOff.customerId,
+              tx
+                .select({ id: representativeCustomer.id })
+                .from(representativeCustomer)
+                .where(eq(representativeCustomer.userId, userId)),
+            ),
+          ),
+        );
       // The inbound limit counts a number, so a Call's follows its identity's to a new one.
       if (channel === smsChannel) {
         const call = representativeCall;

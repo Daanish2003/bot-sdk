@@ -59,7 +59,7 @@ export async function deliverHandOffResult(
   const now = services.clock();
   const nowSql = sql`${now.toISOString()}::timestamp`;
   // A verified Turn's Customer is where they were last heard from verified, which they may have
-  // moved since; an unverified one's is that sender, whom nothing moves.
+  // moved since; an unverified one's is that sender, whom only the owner's correction moves.
   const sender = handOff.verified
     ? { channel: thread.lastChannel, externalId: thread.lastExternalId }
     : { channel: handOff.channel, externalId: handOff.externalId };
