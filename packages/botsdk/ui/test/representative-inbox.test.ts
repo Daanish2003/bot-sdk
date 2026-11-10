@@ -28,6 +28,7 @@ const heldOn = (rule: string): InboxHeldView =>
 function showing(
   held: InboxHeldView[],
   truncated = { held: false, drafts: false, running: false },
+  pagesTruncated = false,
 ) {
   const handler = new RPCHandler({
     representative: {
@@ -35,7 +36,7 @@ function showing(
       replyDraftList: os.handler(() => []),
       list: os.handler(() => []),
     },
-    pages: { list: os.handler(() => []) },
+    pages: { list: os.handler(() => ({ pages: [], truncated: pagesTruncated })) },
   });
   const fetch = async (request: Request) =>
     (await handler.handle(request, { prefix: "/api/chat/rpc" })).response ??
@@ -85,6 +86,12 @@ describe("the owner's inbox lists", () => {
     showing([heldOn("caps")], { held: false, drafts: true, running: false });
 
     expect(await screen.findByText(/more than this list shows/)).toBeTruthy();
+  });
+
+  it("says so when it is the Pages", async () => {
+    showing([heldOn("caps")], { held: false, drafts: false, running: false }, true);
+
+    expect(await screen.findByText(/more Pages than this list shows/)).toBeTruthy();
   });
 
   it("says when it can't show every running thread", async () => {

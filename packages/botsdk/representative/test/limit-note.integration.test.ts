@@ -279,7 +279,7 @@ describe("a Representative with the Quota spent", () => {
     await world.hears("Me too", "+15550002");
     await world.hears("And again");
 
-    const first = await world.rpc.pages.list();
+    const first = (await world.rpc.pages.list()).pages;
     expect(first).toHaveLength(1);
     expect(first[0]).toMatchObject({
       cause: "quota_spent",
@@ -290,7 +290,7 @@ describe("a Representative with the Quota spent", () => {
     world.timer.advance(day + 1);
     await world.hears("Still there?");
 
-    expect(await world.rpc.pages.list()).toHaveLength(2);
+    expect((await world.rpc.pages.list()).pages).toHaveLength(2);
     expect(world.entered).toEqual([]);
   });
 

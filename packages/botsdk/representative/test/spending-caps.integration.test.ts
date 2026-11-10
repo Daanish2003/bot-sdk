@@ -217,7 +217,7 @@ async function instance(
       timer.tick();
       await new Promise((resolve) => setTimeout(resolve, 500));
     },
-    pages: async () => (await rpc.pages.list()).map(({ cause }) => cause),
+    pages: async () => (await rpc.pages.list()).pages.map(({ cause }) => cause),
     messages: async () =>
       getTestDb()
         .select({

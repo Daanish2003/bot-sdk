@@ -100,6 +100,8 @@ export const settingsMessages = {
   "settings.unlinkFailed": "Couldn't unlink that account",
   // Pages (ticket #1300).
   "settings.pages": "Pages",
+  "settings.pagesTruncated":
+    "There are more Pages than this list shows. Acknowledge the oldest to see the next.",
   "settings.pagesHelp":
     "Alerts sent to you outside the app. Acknowledge one to stop it being sent further.",
   "settings.pageEmergency": "Emergency",

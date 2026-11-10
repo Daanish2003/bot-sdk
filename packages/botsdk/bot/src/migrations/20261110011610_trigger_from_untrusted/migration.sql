@@ -1,0 +1,1 @@
+ALTER TABLE "botsdk"."bot_trigger" ADD COLUMN "from_untrusted" boolean DEFAULT false NOT NULL;
