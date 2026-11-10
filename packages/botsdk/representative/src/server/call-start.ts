@@ -124,7 +124,7 @@ async function recordCall(
       .where(eq(representative.id, account.representativeId))
       .for("key share");
     if (!owner) return false;
-    const { customerId } = await holdSender(tx, owner.userId, heard, "", now);
+    const { customerId, identityId } = await holdSender(tx, owner.userId, heard, "", now);
     const [paired] = await tx
       .select({ id: channelAccount.id })
       .from(representativeChannelAccount)
@@ -170,6 +170,7 @@ async function recordCall(
         threadId,
         channelAccountId: account.id,
         externalId: heard.externalId,
+        identityId,
         startedAt: now,
       })
       .onConflictDoNothing()

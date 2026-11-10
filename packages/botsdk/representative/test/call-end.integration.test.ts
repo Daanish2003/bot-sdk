@@ -423,6 +423,50 @@ describe("a correction of the caller's number during the end", () => {
     expect((await calls())[0]).toMatchObject({ status: "ended", externalId: corrected });
   });
 
+  it("goes by who made the Call, when its number has since been given to someone who opted out", async () => {
+    const { user, rpc, callStarts, callEnds, text, calls } = await world();
+    await callStarts();
+    const [identity] = await getTestDb()
+      .select()
+      .from(representativeCustomerIdentity)
+      .where(eq(representativeCustomerIdentity.externalId, caller));
+    await rpc.representative.customerUpdateIdentity({
+      id: identity!.customerId,
+      identityId: identity!.id,
+      channel: "fake",
+      externalId: "corrected-address",
+    });
+    const carolNumber = "+15550033";
+    await text("Carol here.", carolNumber);
+    const carol = (await rpc.representative.customerList()).find((each) =>
+      each.identities.some((one) => one.externalId === carolNumber),
+    )!;
+    await rpc.representative.customerAddIdentity({
+      id: carol.id,
+      channel: "sms",
+      externalId: caller,
+    });
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ optedOutAt: new Date(), optOutSource: "keyword" })
+      .where(
+        and(
+          eq(representativeCustomerIdentity.userId, user.id),
+          eq(representativeCustomerIdentity.channel, "sms"),
+          eq(representativeCustomerIdentity.externalId, caller),
+        ),
+      );
+
+    await callEnds(said);
+
+    const [thread] = await getTestDb()
+      .select({ waitingFrom: representativeThread.waitingFrom })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, (await calls())[0]!.threadId));
+    // Their Turn still runs: the opt-out is the number's new holder's, not the caller's.
+    expect(thread!.waitingFrom).not.toBeNull();
+  });
+
   it("takes the thread's lock before rewriting the Call, the order a request takes them in", async () => {
     const { rpc, callStarts, threadId, calls } = await world();
     await callStarts();

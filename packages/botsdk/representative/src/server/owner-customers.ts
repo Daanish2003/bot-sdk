@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { endedAssignmentStatuses } from "@botsdk/client/bot/assignment";
 import { botAssignment } from "@botsdk/bot/storage";
@@ -314,6 +314,31 @@ export async function updateIdentity(
       throw error;
     }
     if (held && !held.same) {
+      // What another Customer's thread holds at this address follows the identity, so a delete of
+      // this Customer finds it, and whoever is given the old address later doesn't. Their own
+      // threads' stay as they were said and sent.
+      const othersThreads = tx
+        .select({ id: representativeThread.id })
+        .from(representativeThread)
+        .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+        .where(and(ne(representativeThread.customerId, id), eq(representative.userId, userId)));
+      // A thread's row before the rows under it, the order a delete takes them in.
+      await tx
+        .update(representativeThread)
+        .set({ lastChannel: channel, lastExternalId: externalId, channelAccountId: null })
+        .where(
+          and(
+            or(
+              and(
+                eq(representativeThread.customerId, id),
+                ne(representativeThread.state, "closed"),
+              ),
+              inArray(representativeThread.id, othersThreads),
+            ),
+            eq(representativeThread.lastChannel, held.channel),
+            eq(representativeThread.lastExternalId, held.externalId),
+          ),
+        );
       const message = representativeThreadMessage;
       await tx
         .update(message)
@@ -325,8 +350,16 @@ export async function updateIdentity(
             sql`exists (select 1 from ${representativeThread} where ${representativeThread.id} = ${message.threadId} and ${representativeThread.customerId} = ${id} and ${representativeThread.state} <> 'closed' and ${message.position} >= ${representativeThread.waitingFrom})`,
           ),
         );
-      // A proof's decision on another Customer's thread names this address, so it follows the
-      // identity, and a delete of this Customer finds it. Their own threads' stay as they were sent.
+      await tx
+        .update(message)
+        .set({ channel, externalId })
+        .where(
+          and(
+            eq(message.channel, held.channel),
+            eq(message.externalId, held.externalId),
+            inArray(message.threadId, othersThreads),
+          ),
+        );
       const decision = representativeOutboundDecision;
       await tx
         .update(decision)
@@ -335,26 +368,13 @@ export async function updateIdentity(
           and(
             eq(decision.channel, held.channel),
             eq(decision.externalId, held.externalId),
-            sql`exists (select 1 from ${representativeThread} join ${representative} on ${representative.id} = ${representativeThread.representativeId} where ${representativeThread.id} = ${decision.threadId} and ${representativeThread.customerId} <> ${id} and ${representative.userId} = ${userId})`,
+            inArray(decision.threadId, othersThreads),
           ),
         );
-      // A delete finds their Calls by number, on any thread a merge has left them on.
-      if (held.channel === smsChannel && channel === smsChannel) {
+      // The inbound limit counts a number, so a Call's follows its identity's to a new one.
+      if (channel === smsChannel) {
         const call = representativeCall;
-        const theirCalls = and(
-          eq(call.externalId, held.externalId),
-          inArray(
-            call.threadId,
-            tx
-              .select({ id: representativeThread.id })
-              .from(representativeThread)
-              .innerJoin(
-                representative,
-                eq(representative.id, representativeThread.representativeId),
-              )
-              .where(eq(representative.userId, userId)),
-          ),
-        );
+        const theirCalls = eq(call.identityId, identityId);
         // Each thread's lock before its Calls, the order a Call's request and end take them in.
         await tx
           .select({ id: representativeThread.id })
@@ -384,17 +404,6 @@ export async function updateIdentity(
             eq(decision.channel, held.channel),
             eq(decision.externalId, held.externalId),
             sql`exists (select 1 from ${representativeHeldMessage} join ${representativeThread} on ${representativeThread.id} = ${representativeHeldMessage.threadId} where ${representativeHeldMessage.decisionId} = ${decision.id} and ${representativeHeldMessage.resolution} is null and ${representativeThread.customerId} = ${id})`,
-          ),
-        );
-      await tx
-        .update(representativeThread)
-        .set({ lastChannel: channel, lastExternalId: externalId, channelAccountId: null })
-        .where(
-          and(
-            eq(representativeThread.customerId, id),
-            ne(representativeThread.state, "closed"),
-            eq(representativeThread.lastChannel, held.channel),
-            eq(representativeThread.lastExternalId, held.externalId),
           ),
         );
     }
