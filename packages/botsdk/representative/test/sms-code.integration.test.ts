@@ -56,7 +56,6 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-/** Whether a Model call is the Customer memory pass a closed thread queues, not a Turn's. */
 /**
  * A running instance whose Model plays `rounds` in turn for the Turns (a leap past the idle close
  * also makes a memory pass, answered apart), and whose SMS account is a fake platform's.
