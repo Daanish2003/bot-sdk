@@ -7,7 +7,9 @@ import { uuidv7 } from "../../src/lib/uuidv7";
 import {
   closeScreen,
   openHeldScreen,
+  ScreenBusyError,
   screenLeaseJob,
+  screenLeaseWaitMs,
   withScreenLease,
 } from "../../src/bot/helpers";
 import { saveCredentials } from "../../src/models/internal";
@@ -17,7 +19,7 @@ import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb, testDatabaseUrl } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider, type FakeCommandRun } from "@botsdk/testing/fake-computer-provider";
-import type { CommandResult } from "../../src/computer/internal";
+import { ComputerOperationError, type CommandResult } from "../../src/computer/internal";
 import { and, eq, inArray } from "drizzle-orm";
 
 const model = "openai:gpt-6-luna";
@@ -41,9 +43,15 @@ async function holdersOn(
   slots: number[],
   onCommand: (command: FakeCommandRun) => CommandResult | Promise<CommandResult>,
   db = getTestDb(),
+  clock: () => Date = () => new Date(),
 ) {
   const computerFake = fakeComputerProvider({ onCommand });
-  const deps: TestDeps = createTestSdk({ db, computer: computerFake.provider, memory: false });
+  const deps: TestDeps = createTestSdk({
+    db,
+    clock,
+    computer: computerFake.provider,
+    memory: false,
+  });
   const user = await insertUser();
   await saveCredentials(deps, user.id, {
     service: "openai",
@@ -97,6 +105,18 @@ const insertDueLease = (userId: string, slot: number) =>
       payload: {},
       idempotencyKey: `screen-lease:${userId}:${slot}`,
       runAfter: new Date(Date.now() - 1_000),
+    });
+
+/** A lease whose holder is alive and stuck: it keeps renewing, so it never comes due. */
+const insertStuckLease = (userId: string, slot: number) =>
+  getTestDb()
+    .insert(job)
+    .values({
+      id: uuidv7(),
+      name: screenLeaseJob.name,
+      payload: {},
+      idempotencyKey: `screen-lease:${userId}:${slot}`,
+      runAfter: new Date(Date.now() + 3_600_000),
     });
 
 const activeLeases = async () =>
@@ -174,6 +194,47 @@ describe("one Screen's commands", () => {
 });
 
 describe("a Screen's lease", () => {
+  /** What a wait that gave up rejects with, or the rejection as it is. */
+  const busyCause = (caught: unknown) =>
+    caught instanceof ComputerOperationError && caught.cause instanceof ScreenBusyError
+      ? "busy"
+      : caught;
+
+  it("gives up with a busy failure once a stuck holder outlasts the wait, and never runs its work", async () => {
+    const offset = { ms: 0 };
+    const clock = () => new Date(Date.now() + offset.ms);
+    const { deps, holders } = await holdersOn([1], () => ok, getTestDb(), clock);
+    const [{ userId }] = holders as [(typeof holders)[number]];
+    await insertStuckLease(userId, 1);
+    let ran = false;
+
+    const waiting = withScreenLease(deps, userId, 1, async () => {
+      ran = true;
+    }).then(() => "held", busyCause);
+    await sleep(250);
+    expect(ran).toBe(false);
+    offset.ms += screenLeaseWaitMs;
+
+    expect(await within(20_000, waiting)).toBe("busy");
+    expect(ran).toBe(false);
+  }, 30_000);
+
+  it("stops waiting, with a busy failure, once the process is stopping", async () => {
+    const { deps, holders } = await holdersOn([1], () => ok);
+    const [{ userId }] = holders as [(typeof holders)[number]];
+    await insertStuckLease(userId, 1);
+    let ran = false;
+
+    const waiting = withScreenLease(deps, userId, 1, async () => {
+      ran = true;
+    }).then(() => "held", busyCause);
+    await sleep(250);
+    deps.lifecycle.stopping = true;
+
+    expect(await within(20_000, waiting)).toBe("busy");
+    expect(ran).toBe(false);
+  }, 30_000);
+
   it("is taken over once a crashed holder's lease is due, with no runner to run it", async () => {
     const { deps, holders } = await holdersOn([1], () => ok);
     const [{ userId }] = holders as [(typeof holders)[number]];

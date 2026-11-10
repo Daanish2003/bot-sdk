@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botHelper, botTrigger, computer as computerTable, job } from "../../src/storage";
 import { uuidv7 } from "../../src/lib/uuidv7";
-import { askUserToolName, closeScreen, withScreenLease } from "../../src/bot/helpers";
+import {
+  askUserToolName,
+  closeScreen,
+  screenLeaseWaitMs,
+  withScreenLease,
+} from "../../src/bot/helpers";
 import type { ScreenPeer } from "../../src/bot/helpers";
 import { saveCredentials } from "../../src/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "../../src/runner/internal";
@@ -194,6 +199,18 @@ const stoppedJobStatus = async (helperId: string) =>
       .from(job)
       .where(eq(job.idempotencyKey, `helper-stopped:${helperId}`))
   )[0]?.status;
+
+/** A lease on slot 1 whose holder is alive and stuck: it keeps renewing, so it never comes due. */
+const stuckLeaseOn = (userId: string) =>
+  getTestDb()
+    .insert(job)
+    .values({
+      id: uuidv7(),
+      name: "bot.screen.lease",
+      payload: {},
+      idempotencyKey: `screen-lease:${userId}:1`,
+      runAfter: new Date(Date.now() + 3_600_000),
+    });
 
 /** Another Helper of the user's on slot 1, as `start_helper` gives it the slot a stop freed. */
 const nextHolderOn = (helper: { startedByTurnId: string }, botId: string) =>
@@ -581,6 +598,22 @@ describe("bot.screen.control", () => {
     ]);
   });
 
+  it("tells the user the Screen is busy when a stuck command outlasts the wait", async () => {
+    const { client, user, helper, offset, computerFake } = await waitingHelper();
+    await stuckLeaseOn(user.id);
+
+    const controlling = client.computer.control({ helperId: helper.id, mode: "control" }).then(
+      () => "changed",
+      (caught: { code: string; data?: { code?: string } }) =>
+        `${caught.code}: ${caught.data?.code}`,
+    );
+    await settle();
+    offset.ms += screenLeaseWaitMs;
+
+    expect(await controlling).toBe("CONFLICT: error.screenBusy");
+    expect(screenCommands(computerFake)).not.toContain("/usr/local/bin/ai-chat-screen control 1");
+  }, 30_000);
+
   it("leaves the next holder's Screen alone when the slot changed hands before it ran", async () => {
     const { client, deps, user, helper, botId, computerFake } = await waitingHelper();
     let controlling: Promise<unknown> = Promise.resolve();
@@ -611,6 +644,21 @@ describe("bot.helper.done", () => {
       .poll(() => screenCommands(computerFake).at(-1))
       .toBe("/usr/local/bin/ai-chat-screen view 1");
   });
+
+  it("still resumes the Helper when a stuck command outlasts the wait to give control back", async () => {
+    const { client, user, helper, botId, offset, computerFake } = await waitingHelper();
+    await stuckLeaseOn(user.id);
+
+    const done = client.helpers.done({ helperId: helper.id });
+    await expect
+      .poll(async () => (await helpersOf(botId))[0]?.status, { timeout: 10_000 })
+      .not.toBe("waiting");
+    await settle();
+    offset.ms += screenLeaseWaitMs;
+
+    expect(await done).toEqual({ status: "running" });
+    expect(screenCommands(computerFake)).not.toContain("/usr/local/bin/ai-chat-screen view 1");
+  }, 30_000);
 
   it("leaves the next holder's Screen alone when the Helper was stopped before it gave control back", async () => {
     const { client, deps, user, helper, botId, computerFake } = await waitingHelper();
