@@ -215,9 +215,10 @@ test("a Bot assigns work to another, which shows collapsed in its Conversation a
     .getByRole("button", { name: `Cancel ${assignmentTitle}` })
     .click();
   await expect(page.locator("[data-assignment][data-status=cancelled]")).toBeVisible();
-  await expect(page.getByRole("list", { name: "Log" }).getByRole("listitem").last()).toContainText(
-    "by you",
-  );
+  // Not the last row: a model call still running when it was cancelled is charged after it.
+  await expect(
+    page.getByRole("list", { name: "Log" }).getByRole("listitem").filter({ hasText: "Cancelled" }),
+  ).toContainText("by you");
 });
 
 test("/ lands on /bots", async ({ page }) => {
