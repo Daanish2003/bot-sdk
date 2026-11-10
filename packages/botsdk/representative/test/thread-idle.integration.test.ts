@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { AnyTextAdapter } from "@tanstack/ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { saveCredentials } from "@botsdk/bot/models/internal";
@@ -16,6 +17,7 @@ import { representative } from "../src";
 import { representativeTurnJobName } from "../src/server/thread-turns";
 import { threadIdleJobName, threadIdleMs } from "../src/server/idle";
 import { handOffMessage } from "../src/server/replies";
+import { isSummaryPass } from "./summary-pass";
 
 /*
  * Threads close after 7 idle days (ticket #1252): a thread's own delayed job, run by a runner on a
@@ -51,6 +53,17 @@ async function instance(first: Parameters<typeof createFakeAdapter>[0]["rounds"]
   const fake = createFakeAdapter({
     rounds: [...first, ...Array.from({ length: 20 }, () => answersOnce)],
   });
+  // The pass after a close isn't what these tests script: it hears nothing and writes nothing.
+  const adapter: AnyTextAdapter = {
+    ...fake.adapter,
+    chatStream: async function* (options) {
+      if (isSummaryPass(options)) {
+        yield* round();
+        return;
+      }
+      yield* fake.adapter.chatStream(options);
+    },
+  };
   const timer = fakeJobClock(new Date());
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -63,7 +76,7 @@ async function instance(first: Parameters<typeof createFakeAdapter>[0]["rounds"]
   deps = createTestSdk({
     jobs,
     features: [representative()],
-    adapterFor: () => fake.adapter,
+    adapterFor: () => adapter,
     clock: timer.clock.now,
     memory: false,
   });

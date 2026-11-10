@@ -221,6 +221,82 @@ describe("a stranger on a Representative's account", () => {
     expect(await identities()).toEqual([{ channel: "fake", externalId: "1001" }]);
   });
 
+  /** A webhook world whose feature's `onStranger` throws on a message whose text is in `failing`. */
+  async function failingWebhook() {
+    const made = await world([], { webhook: true });
+    await made.representativeOn("1:a");
+    const [account] = await getTestDb()
+      .select({ id: channelAccount.id })
+      .from(channelAccount)
+      .where(eq(channelAccount.platformBotId, "1"));
+    const held = made.deps.parts.features.find(
+      ({ feature }) => feature.id === "representative",
+    )!.feature;
+    const onStranger = held.onStranger!;
+    const failing = new Set<string>();
+    held.onStranger = (message, context) =>
+      failing.has(message.text)
+        ? Promise.reject(new Error("the database went away"))
+        : onStranger(message, context);
+    const chat = createTestChat({ deps: made.deps });
+    const post = (updates: { sourceId: string; text: string }[]) =>
+      chat.fetch(
+        made.channel.webhookRequest(
+          `https://host.example/api/chat/channels/fake/${account!.id}`,
+          "1:a",
+          updates,
+        ),
+      );
+    const customerTexts = async () =>
+      (await messages()).filter(({ author }) => author === "customer").map(({ text }) => text);
+    return { ...made, failing, post, customerTexts };
+  }
+
+  it("answers 503 when a held account's update can't be stored, and stores its retry once (#1363)", async () => {
+    const { failing, post, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "50", text: "Hello" }];
+
+    failing.add("Hello");
+    expect((await post(update)).status).toBe(503);
+    expect(await customerTexts()).toEqual([]);
+
+    failing.clear();
+    expect((await post(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Hello"]);
+
+    expect((await post(update)).status).toBe(202);
+    expect(await customerTexts()).toEqual(["Hello"]);
+  });
+
+  it("stores each update of a held account's request exactly once after a retry (#1363)", async () => {
+    const { failing, post, customerTexts } = await failingWebhook();
+    const updates = [
+      { sourceId: "60", text: "one" },
+      { sourceId: "61", text: "two" },
+      { sourceId: "62", text: "three" },
+    ];
+
+    failing.add("two");
+    expect((await post(updates)).status).toBe(503);
+    expect(await customerTexts()).toEqual(["one", "three"]);
+
+    failing.clear();
+    expect((await post(updates)).status).toBe(202);
+    expect((await customerTexts()).sort()).toEqual(["one", "three", "two"]);
+  });
+
+  it("stores a held account's two copies posted at once exactly once (#1363)", async () => {
+    const { post, customerTexts } = await failingWebhook();
+    const update = [{ sourceId: "70", text: "Only one" }];
+
+    const statuses = (await Promise.all([post(update), post(update)])).map(({ status }) => status);
+
+    expect(statuses.filter((status) => status === 202)).toHaveLength(1);
+    expect(await customerTexts()).toEqual(["Only one"]);
+    await expect.poll(async () => (await post(update)).status, poll).toBe(202);
+    expect(await customerTexts()).toEqual(["Only one"]);
+  });
+
   it("becomes a Customer, a Turn runs, and the gate's reply goes out through that account", async () => {
     const { channel, fake, representativeOn, hears } = await world(["Hello there."]);
     await representativeOn("1:a");

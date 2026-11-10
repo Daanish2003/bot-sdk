@@ -31,7 +31,8 @@ import {
 } from "../src/server/db/schema";
 import { holdCustomers } from "../src/server/customer-merge";
 import { setOwnerValue } from "../src/server/customer-profile";
-import { customerSummaryMarker, profileOperationsMarker } from "../src/server/customer-summary";
+import { profileOperationsMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import { threadExpiryMs } from "../src/server/expiry";
 import { threadIdleMs } from "../src/server/idle";
 
@@ -55,9 +56,6 @@ const runners: JobRunner[] = [];
 afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
-
-const isPassCall = (options: TextOptions) =>
-  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
 
 type Operation = { field: string; value: string; line: number };
 
@@ -108,14 +106,14 @@ async function instance() {
   const turns: Array<() => ReturnType<typeof round>> = [];
   const fake = createFakeAdapter({
     rounds: Array.from({ length: 60 }, () => (options: TextOptions) => {
-      if (isPassCall(options)) return passReply(pass.shift() ?? []);
+      if (isSummaryPass(options)) return passReply(pass.shift() ?? []);
       return turns.shift()?.() ?? answersOnce(options);
     }),
   });
   const gated: AnyTextAdapter = {
     ...(fake.adapter as AnyTextAdapter),
     chatStream: async function* (options) {
-      if (isPassCall(options)) await onPassCall.current?.();
+      if (isSummaryPass(options)) await onPassCall.current?.();
       yield* fake.adapter.chatStream(options);
     },
   };
@@ -165,7 +163,7 @@ async function instance() {
       externalId,
       proof: { rule: "sameIdentity" },
     });
-    const call = fake.calls.slice(before).find((each) => !isPassCall(each));
+    const call = fake.calls.slice(before).find((each) => !isSummaryPass(each));
     return JSON.stringify(call?.messages ?? []);
   };
   const say = (message: string, externalId: string) =>

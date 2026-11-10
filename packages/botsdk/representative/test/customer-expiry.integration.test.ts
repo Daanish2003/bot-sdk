@@ -19,7 +19,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
-import { customerSummaryMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import { queueThreadExpiry, threadExpiryJobName, threadExpiryMs } from "../src/server/expiry";
 import { threadIdleMs } from "../src/server/idle";
 
@@ -40,9 +40,6 @@ afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop();
 });
 
-const isPassCall = (options: TextOptions) =>
-  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
-
 const handsOff = () =>
   round(
     toolCall({
@@ -57,7 +54,7 @@ async function instance({
   const turns = [...turnRounds];
   const fake = createFakeAdapter({
     rounds: Array.from({ length: 40 }, () => (options: TextOptions) => {
-      if (isPassCall(options)) return round(text("Asked about hours."));
+      if (isSummaryPass(options)) return round(text("Asked about hours."));
       return turns.shift()?.() ?? answersOnce(options);
     }),
   });

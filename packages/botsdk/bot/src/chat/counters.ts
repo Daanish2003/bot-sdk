@@ -11,27 +11,38 @@ export interface CounterStore {
    * once it has passed, the next hit opens a new window at 1.
    */
   hit(key: string, windowMs: number): Promise<CounterHit>;
+  /**
+   * Replaces `key`'s window, whatever was left of it: with a new one of `windowMs` holding one hit,
+   * or, with no `windowMs`, with none, so the next hit opens a new window at 1.
+   */
+  reset(key: string, windowMs?: number): Promise<void>;
 }
 
 /** The in-process `CounterStore`: one process, windows held in memory. */
 export function createMemoryCounters(): CounterStore {
   const windows = new Map<string, { count: number; expiresAt: number }>();
 
+  /** Opens `key`'s window at `count` hits, and drops it once it has passed. */
+  const open = (key: string, count: number, windowMs: number) => {
+    const opened = { count, expiresAt: Date.now() + windowMs };
+    windows.set(key, opened);
+    setTimeout(() => {
+      if (windows.get(key) === opened) windows.delete(key);
+    }, windowMs).unref?.();
+    return opened;
+  };
+
   return {
     async hit(key, windowMs) {
       const now = Date.now();
-      let window = windows.get(key);
-      if (!window || window.expiresAt <= now) {
-        const opened = { count: 0, expiresAt: now + windowMs };
-        window = opened;
-        windows.set(key, window);
-        // Drop the window once it has passed, so the map holds only open windows.
-        setTimeout(() => {
-          if (windows.get(key) === opened) windows.delete(key);
-        }, windowMs).unref?.();
-      }
+      const found = windows.get(key);
+      const window = found && found.expiresAt > now ? found : open(key, 0, windowMs);
       window.count++;
       return { count: window.count, resetMs: window.expiresAt - now };
+    },
+    async reset(key, windowMs) {
+      windows.delete(key);
+      if (windowMs !== undefined) open(key, 1, windowMs);
     },
   };
 }

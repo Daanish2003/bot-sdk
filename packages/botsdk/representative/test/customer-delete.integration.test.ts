@@ -25,7 +25,8 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 import { representative } from "../src";
 import { deleteCustomer } from "../src/server/customer-delete";
 import { codeHandOffKind, limitNoteKind, type StoredReplyKind } from "../src/shared/replies";
-import { afterThreadClose, customerSummaryMarker } from "../src/server/customer-summary";
+import { afterThreadClose } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import {
   representativeCall,
   representativeCustomer,
@@ -78,9 +79,6 @@ beforeEach(async () => {
     .where(inArray(job.status, ["queued", "running"]));
 });
 
-const isPassCall = (options: TextOptions) =>
-  JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker);
-
 const handsOff = () =>
   round(
     toolCall({
@@ -102,7 +100,7 @@ async function instance({
   const turns = [...turnRounds];
   const fake = createFakeAdapter({
     rounds: Array.from({ length: 40 }, () => (options: TextOptions) => {
-      if (isPassCall(options)) return round(text("Asked about hours."));
+      if (isSummaryPass(options)) return round(text("Asked about hours."));
       return turns.shift()?.() ?? answersOnce(options);
     }),
   });
