@@ -700,7 +700,7 @@ describe("a taken-over thread", () => {
 
     await settle(2 * 60 * 60_000 + 1_000);
 
-    expect((await rpc.pages.list()).map(({ cause }) => cause)).toEqual(["owner_wait"]);
+    expect((await rpc.pages.list()).pages.map(({ cause }) => cause)).toEqual(["owner_wait"]);
   });
 });
 

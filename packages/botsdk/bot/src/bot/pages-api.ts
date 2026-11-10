@@ -1,4 +1,4 @@
-import { type PageRow, pageIdInput, type PageUrgency } from "@botsdk/client/bot/pages";
+import { type PagesList, pageIdInput, type PageUrgency } from "@botsdk/client/bot/pages";
 import { oneLine } from "@botsdk/client/message-format";
 import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 
@@ -99,10 +99,11 @@ export function pagesApi(sdk: BotSdkContext) {
   return {
     /**
      * The user's Pages they haven't acknowledged, emergencies first and each newest first, so the
-     * limit never takes an emergency for the sake of newer routine ones.
+     * limit never takes an emergency for the sake of newer routine ones. `truncated` says there were
+     * more than the limit.
      */
-    list: async ({ userId }: { userId: string }): Promise<PageRow[]> =>
-      sdk.db
+    list: async ({ userId }: { userId: string }): Promise<PagesList> => {
+      const rows = await sdk.db
         .select({
           id: page.id,
           cause: page.cause,
@@ -119,7 +120,9 @@ export function pagesApi(sdk: BotSdkContext) {
           desc(page.createdAt),
           desc(page.id),
         )
-        .limit(maxListed),
+        .limit(maxListed + 1);
+      return { pages: rows.slice(0, maxListed), truncated: rows.length > maxListed };
+    },
 
     /**
      * Acknowledges the user's Page, which stops whatever it hasn't sent yet. Repeating it changes

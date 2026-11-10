@@ -224,7 +224,7 @@ describe("Pages", () => {
 
     const { id } = await page();
     await runDue();
-    expect(await client.pages.list()).toEqual([
+    expect((await client.pages.list()).pages).toEqual([
       expect.objectContaining({ id, cause: alert.cause, urgency: "routine", title: alert.title }),
     ]);
 
@@ -234,7 +234,7 @@ describe("Pages", () => {
 
     expect(email.sent).toEqual([]);
     expect(push.sent).toHaveLength(1);
-    expect(await client.pages.list()).toEqual([]);
+    expect(await client.pages.list()).toEqual({ pages: [], truncated: false });
   });
 
   describe("once a day per cause", () => {
@@ -257,7 +257,7 @@ describe("Pages", () => {
       owner.timer.advance(1);
       expect(await send()).not.toBeNull();
 
-      expect(await owner.client.pages.list()).toHaveLength(2);
+      expect((await owner.client.pages.list()).pages).toHaveLength(2);
     });
 
     it("keeps causes apart, and owners", async () => {
@@ -338,9 +338,9 @@ describe("Pages", () => {
 
     const { id } = await page();
 
-    expect(await stranger.pages.list()).toEqual([]);
+    expect(await stranger.pages.list()).toEqual({ pages: [], truncated: false });
     await expect(stranger.pages.acknowledge({ id })).rejects.toMatchObject({ status: 404 });
-    expect(await client.pages.list()).toHaveLength(1);
+    expect((await client.pages.list()).pages).toHaveLength(1);
 
     timer.advance(10 * minute);
     await runDue();
@@ -378,7 +378,7 @@ describe("Pages", () => {
     await page({ title: `${"t".repeat(500)}\nline two`, text: "x".repeat(10_000) });
     await runDue();
 
-    const [listed] = await client.pages.list();
+    const [listed] = (await client.pages.list()).pages;
     expect(listed!.title.length).toBe(120);
     expect(listed!.title).toMatch(/^t+…$/);
     expect(listed!.text.length).toBe(2000);
@@ -553,9 +553,23 @@ describe("the list of Pages", () => {
       await page();
     }
 
-    const listed = await client.pages.list();
+    const { pages: listed, truncated } = await client.pages.list();
 
     expect(listed).toHaveLength(50);
+    expect(truncated).toBe(true);
     expect(listed[0]).toMatchObject({ id, urgency: "emergency" });
+  });
+
+  it("says nothing was cut off with exactly 50 Pages", async () => {
+    const { page, client, timer } = await ownerWithPages();
+    for (let each = 0; each < 50; each += 1) {
+      timer.advance(1_000);
+      await page();
+    }
+
+    const { pages: listed, truncated } = await client.pages.list();
+
+    expect(listed).toHaveLength(50);
+    expect(truncated).toBe(false);
   });
 });

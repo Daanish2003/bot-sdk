@@ -21,14 +21,14 @@ export function PagesSection() {
       onError: () => toast.error(t("settings.acknowledgeFailed")),
     }),
   );
-  if (!list.data?.length) return null;
+  if (!list.data?.pages.length) return null;
 
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-medium">{t("settings.pages")}</h2>
       <p className="text-xs text-muted-foreground">{t("settings.pagesHelp")}</p>
       <ul aria-label={t("settings.pages")} className="space-y-2 rounded-xl border px-4 py-3">
-        {list.data.map((page) => (
+        {list.data.pages.map((page) => (
           <li key={page.id} className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
               <a href={page.path} className="block text-sm font-medium break-words hover:underline">
@@ -56,6 +56,9 @@ export function PagesSection() {
           </li>
         ))}
       </ul>
+      {list.data.truncated && (
+        <p className="text-xs text-muted-foreground">{t("settings.pagesTruncated")}</p>
+      )}
     </section>
   );
 }

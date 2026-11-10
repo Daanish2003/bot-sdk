@@ -742,7 +742,7 @@ describe("the emergency script", () => {
 describe("Pages with the Quota spent", () => {
   it("still reach the owner: the Quota's own, a held message's and an emergency's", async () => {
     const world = await instance([], { spent: true });
-    const pages = async () => world.rpc.pages.list();
+    const pages = async () => (await world.rpc.pages.list()).pages;
 
     await world.hears("Hello");
     expect((await pages()).map(({ cause }) => cause)).toEqual(["quota_spent"]);
