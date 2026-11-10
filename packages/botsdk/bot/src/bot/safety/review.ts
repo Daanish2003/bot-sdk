@@ -399,6 +399,9 @@ export const approvedCallJobName = "bot.approved_call";
 /** The key of review `reviewId`'s approved-call job: one Allow, one job. */
 export const approvedCallKey = (reviewId: string) => `approved-call:${reviewId}`;
 
+/** Joins an Approval to its approved-call job. What to pick from them and what to lock is each caller's. */
+const isApprovedCallJob = eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`);
+
 /** The marker an approved-call job records just before it starts the call. */
 export const approvedCallStartActivity = "call_start";
 
@@ -637,7 +640,7 @@ export async function reopenUnstartedCalls(
     })
     .from(botReview)
     .innerJoin(bot, eq(bot.id, botReview.botId))
-    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .innerJoin(job, isApprovedCallJob)
     .where(
       and(
         eq(botReview.botId, owner.botId),
@@ -691,7 +694,7 @@ export async function declineBotApprovals(
   const queued = await tx
     .select({ id: botReview.id })
     .from(botReview)
-    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .innerJoin(job, isApprovedCallJob)
     .where(
       and(
         eq(botReview.botId, owner.botId),
@@ -727,7 +730,7 @@ export async function denyForDeletedCustomer(
       started: sql<boolean>`exists (select 1 from ${jobEvent} where ${jobEvent.jobId} = ${job.id} and ${jobEvent.name} = ${approvedCallStartActivity})`,
     })
     .from(botReview)
-    .innerJoin(job, eq(job.idempotencyKey, sql`${approvedCallKey("")} || ${botReview.id}`))
+    .innerJoin(job, isApprovedCallJob)
     .where(
       and(
         inArray(botReview.id, reviewIds),
