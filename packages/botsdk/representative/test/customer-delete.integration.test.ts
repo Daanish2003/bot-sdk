@@ -1045,6 +1045,27 @@ describe("deleting a Customer", () => {
       expect(thread?.lastExternalId).toBe(adaNumber);
     });
 
+    it("deletes a Customer whatever number of Call entries the owner's other threads hold", async () => {
+      const { rpc, ada, bob, thread, correct } = await called();
+      await correct(fakeChannel, correctedAddress);
+      // More entries than Postgres can bind as parameters of one statement.
+      await getTestDb().execute(sql`
+        insert into botsdk.representative_thread_message
+          (id, thread_id, position, author, text, verified, channel, external_id, created_at)
+        select gen_random_uuid(), ${thread.id}, 1000 + g, 'call', 'Entry.', false, 'sms', ${carolNumber}, now()
+        from generate_series(1, 66000) g`);
+      await getTestDb().execute(sql`
+        insert into botsdk.representative_call (id, call_id, thread_id, external_id, message_id, status, started_at)
+        select gen_random_uuid(), 'bulk-' || position, thread_id, ${carolNumber}, id, 'ended', now()
+        from botsdk.representative_thread_message
+        where thread_id = ${thread.id} and position > 1000`);
+
+      await rpc.representative.customerDelete({ id: bob.id });
+
+      expect((await rpc.representative.customerList()).map((each) => each.id)).toEqual([ada.id]);
+      expect(await wordsOn([ada.id])).not.toContain("Bob's Call.");
+    }, 60_000);
+
     describe("and the old address is given to someone else", () => {
       it.each([
         ["another Customer's thread", true],
