@@ -341,7 +341,7 @@ export const representativeMessages = {
   "representative.inbox.queueTruncated":
     "There is more than this list shows. Answer the oldest to see the next.",
   "representative.inbox.pagesTruncated":
-    "There are more Pages than this list shows. Acknowledge the oldest to see the next.",
+    "There are more Pages than this list shows. Acknowledge one here to bring in the next.",
   "representative.inbox.runningTruncated": "Showing the most recently active threads.",
   "representative.inbox.heldIntro":
     "The Customer hasn't got this. Send it as your own message, or drop it.",
