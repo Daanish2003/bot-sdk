@@ -146,5 +146,9 @@
   {
     "name": "20261109101413_representative_call_caller",
     "sql": "ALTER TABLE \"botsdk\".\"representative_call\" ADD COLUMN \"external_id\" text NOT NULL;--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_call\" ADD COLUMN \"message_id\" uuid;"
+  },
+  {
+    "name": "20261110002527_representative_call_identity",
+    "sql": "ALTER TABLE \"botsdk\".\"representative_call\" ADD COLUMN \"identity_id\" uuid;--> statement-breakpoint\nCREATE INDEX \"representative_call_identity_idx\" ON \"botsdk\".\"representative_call\" (\"identity_id\");--> statement-breakpoint\nALTER TABLE \"botsdk\".\"representative_call\" ADD CONSTRAINT \"representative_call_JtzEyJh3XxNT_fkey\" FOREIGN KEY (\"identity_id\") REFERENCES \"botsdk\".\"representative_customer_identity\"(\"id\") ON DELETE CASCADE;--> statement-breakpoint\nUPDATE \"botsdk\".\"representative_call\" AS \"call\"\nSET \"identity_id\" = \"identity\".\"id\"\nFROM \"botsdk\".\"representative_thread\" AS \"thread\", \"botsdk\".\"representative\" AS \"representative\", \"botsdk\".\"representative_customer_identity\" AS \"identity\"\nWHERE \"thread\".\"id\" = \"call\".\"thread_id\"\n  AND \"representative\".\"id\" = \"thread\".\"representative_id\"\n  AND \"identity\".\"user_id\" = \"representative\".\"user_id\"\n  AND \"identity\".\"channel\" = 'sms'\n  AND \"identity\".\"external_id\" = \"call\".\"external_id\";\n"
   }
 ]
