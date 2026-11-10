@@ -1010,9 +1010,9 @@ describe("deleting a Customer", () => {
       },
     );
 
-    it("takes their hand-off and the address a thread last heard them at from another Customer's thread", async () => {
+    it("takes the address a thread last heard them at from another Customer's thread", async () => {
       const owner = await instance({ turnRounds: [handsOff, answers, () => round()] });
-      const { rpc, say, heard, customerAt, settle, context, user } = owner;
+      const { rpc, say, heard, customerAt, settle } = owner;
       await heard("Ada speaks.", adaNumber);
       await heard("Bob speaks.", bobNumber);
       await settle();
@@ -1028,7 +1028,6 @@ describe("deleting a Customer", () => {
         .update(representativeThread)
         .set({ lastExternalId: bobNumber })
         .where(eq(representativeThread.id, shared.id));
-      const [theirHandOff] = await handOffsAt(bobNumber);
       const { identities } = (await rpc.representative.customerList()).find(
         (each) => each.id === bob.id,
       )!;
@@ -1039,10 +1038,8 @@ describe("deleting a Customer", () => {
         externalId: correctedAddress,
       });
 
-      const { assignmentIds } = await deleteCustomer(context(), user.id, bob.id);
+      await rpc.representative.customerDelete({ id: bob.id });
 
-      expect(assignmentIds).toContain(theirHandOff!.assignmentId);
-      expect(await handOffsAt(correctedAddress)).toEqual([]);
       const [thread] = await getTestDb()
         .select({ lastExternalId: representativeThread.lastExternalId })
         .from(representativeThread)

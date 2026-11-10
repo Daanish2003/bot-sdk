@@ -314,6 +314,31 @@ export async function updateIdentity(
       throw error;
     }
     if (held && !held.same) {
+      // What another Customer's thread holds at this address follows the identity, so a delete of
+      // this Customer finds it, and whoever is given the old address later doesn't. Their own
+      // threads' stay as they were said and sent.
+      const othersThreads = tx
+        .select({ id: representativeThread.id })
+        .from(representativeThread)
+        .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
+        .where(and(ne(representativeThread.customerId, id), eq(representative.userId, userId)));
+      // A thread's row before the rows under it, the order a delete takes them in.
+      await tx
+        .update(representativeThread)
+        .set({ lastChannel: channel, lastExternalId: externalId, channelAccountId: null })
+        .where(
+          and(
+            or(
+              and(
+                eq(representativeThread.customerId, id),
+                ne(representativeThread.state, "closed"),
+              ),
+              inArray(representativeThread.id, othersThreads),
+            ),
+            eq(representativeThread.lastChannel, held.channel),
+            eq(representativeThread.lastExternalId, held.externalId),
+          ),
+        );
       const message = representativeThreadMessage;
       await tx
         .update(message)
@@ -325,14 +350,6 @@ export async function updateIdentity(
             sql`exists (select 1 from ${representativeThread} where ${representativeThread.id} = ${message.threadId} and ${representativeThread.customerId} = ${id} and ${representativeThread.state} <> 'closed' and ${message.position} >= ${representativeThread.waitingFrom})`,
           ),
         );
-      // What another Customer's thread holds at this address follows the identity, so a delete of
-      // this Customer finds it, and whoever is given the old address later doesn't. Their own
-      // threads' stay as they were said and sent.
-      const othersThreads = tx
-        .select({ id: representativeThread.id })
-        .from(representativeThread)
-        .innerJoin(representative, eq(representative.id, representativeThread.representativeId))
-        .where(and(ne(representativeThread.customerId, id), eq(representative.userId, userId)));
       await tx
         .update(message)
         .set({ channel, externalId })
@@ -352,24 +369,6 @@ export async function updateIdentity(
             eq(decision.channel, held.channel),
             eq(decision.externalId, held.externalId),
             inArray(decision.threadId, othersThreads),
-          ),
-        );
-      await tx
-        .update(representativeHandOff)
-        .set({ channel, externalId })
-        .where(
-          and(
-            eq(representativeHandOff.channel, held.channel),
-            eq(representativeHandOff.externalId, held.externalId),
-            inArray(
-              representativeHandOff.customerId,
-              tx
-                .select({ id: representativeCustomer.id })
-                .from(representativeCustomer)
-                .where(
-                  and(eq(representativeCustomer.userId, userId), ne(representativeCustomer.id, id)),
-                ),
-            ),
           ),
         );
       // The inbound limit counts a number, so a Call's follows its identity's to a new one.
@@ -405,22 +404,6 @@ export async function updateIdentity(
             eq(decision.channel, held.channel),
             eq(decision.externalId, held.externalId),
             sql`exists (select 1 from ${representativeHeldMessage} join ${representativeThread} on ${representativeThread.id} = ${representativeHeldMessage.threadId} where ${representativeHeldMessage.decisionId} = ${decision.id} and ${representativeHeldMessage.resolution} is null and ${representativeThread.customerId} = ${id})`,
-          ),
-        );
-      await tx
-        .update(representativeThread)
-        .set({ lastChannel: channel, lastExternalId: externalId, channelAccountId: null })
-        .where(
-          and(
-            or(
-              and(
-                eq(representativeThread.customerId, id),
-                ne(representativeThread.state, "closed"),
-              ),
-              inArray(representativeThread.id, othersThreads),
-            ),
-            eq(representativeThread.lastChannel, held.channel),
-            eq(representativeThread.lastExternalId, held.externalId),
           ),
         );
     }

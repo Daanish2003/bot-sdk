@@ -2,15 +2,13 @@ import {
   and,
   desc,
   eq,
-  exists,
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   max,
   min,
-  not,
-  notExists,
   notInArray,
   or,
   type SQL,
@@ -193,19 +191,6 @@ async function removeFromOtherThreads(
     call.identityId,
     addresses.map((each) => each.id),
   );
-  const entryOf = (isCall: SQL) =>
-    tx
-      .select({ id: call.id })
-      .from(call)
-      .where(and(eq(call.messageId, message.id), isCall));
-  // Their words at their address, unless a Call's entry, which is theirs only if the Call is.
-  const isTheirs = or(
-    and(
-      isAt(message.channel, message.externalId, addresses),
-      notExists(entryOf(or(isNull(call.identityId), not(isTheirCall))!)),
-    ),
-    exists(entryOf(isTheirCall)),
-  )!;
   const others = tx
     .select({ id: representativeCustomer.id })
     .from(representativeCustomer)
@@ -215,6 +200,24 @@ async function removeFromOtherThreads(
         notInArray(representativeCustomer.id, customerIds),
       ),
     );
+  const heldIds = new Set(addresses.map((each) => each.id));
+  const entries = await tx
+    .select({ messageId: call.messageId, identityId: call.identityId })
+    .from(call)
+    .innerJoin(thread, eq(thread.id, call.threadId))
+    .where(and(inArray(thread.customerId, others), isNotNull(call.messageId)));
+  const entryIds = (theirs: boolean) =>
+    entries
+      .filter((each) => (each.identityId !== null && heldIds.has(each.identityId)) === theirs)
+      .map((each) => each.messageId!);
+  // Their words at their address, unless a Call's entry, which is theirs only if the Call is.
+  const isTheirs = or(
+    and(
+      isAt(message.channel, message.externalId, addresses),
+      notInArray(message.id, entryIds(false)),
+    ),
+    inArray(message.id, entryIds(true)),
+  )!;
   const touched = await tx
     .selectDistinct({ id: thread.id })
     .from(thread)
