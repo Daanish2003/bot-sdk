@@ -1599,6 +1599,85 @@ describe("what a Check-in's Turn or a Helper does through the delete", () => {
     expect(await redactionPasses()).toEqual([]);
   });
 
+  it("queues a pass for a Check-in firing after the delete, but not for what that Turn then sets", async () => {
+    const made: { at: Date } = { at: new Date(0) };
+    const setsCheckIn = () =>
+      round(
+        toolCall({
+          name: "set_check_in",
+          input: { at: made.at.toISOString(), note: `Call 12 ${adaWords} again.` },
+        }),
+      );
+    const owner = await serving({
+      turnRounds: [adaHandsOff, quiet],
+      botRounds: [
+        setsCheckIn,
+        finished("Called them."),
+        quiet,
+        setsCheckIn,
+        quiet,
+        says("Nothing more."),
+      ],
+    });
+    made.at = new Date(owner.timer.clock.now().getTime() + hour);
+    await owner.say("I'd like a refund.", adaNumber);
+    const ada = await owner.customerAt(adaNumber);
+    await owner.rpc.representative.customerDelete({ id: ada.id });
+
+    owner.timer.advance(hour);
+    made.at = new Date(owner.timer.clock.now().getTime() + 2 * hour);
+    await owner.drain();
+    expect(owner.entered).toHaveLength(5);
+    expect(await redactionPasses()).toHaveLength(1);
+
+    owner.timer.advance(2 * hour);
+    await owner.drain();
+    expect(owner.entered).toHaveLength(6);
+    expect(await redactionPasses()).toHaveLength(1);
+  });
+
+  it("changes nothing on a repeat of a Helper and a Turn holding a named Model message", async () => {
+    const owner = await serving({ turnRounds: [adaHandsOff, quiet], botRounds: [quiet] });
+    await owner.say("I'd like a refund.", adaNumber);
+    const db = getTestDb();
+    const [turn] = await db
+      .select()
+      .from(botTurn)
+      .where(eq(botTurn.botId, owner.botId))
+      .orderBy(botTurn.startedAt)
+      .limit(1);
+    const named = { role: "user" as const, name: "Clerk", content: `About 12 ${adaWords}.` };
+    await db
+      .update(botTurn)
+      .set({ transcript: [named] })
+      .where(eq(botTurn.id, turn!.id));
+    const now = owner.timer.clock.now();
+    await db.insert(botHelper).values({
+      id: crypto.randomUUID(),
+      botId: owner.botId,
+      type: "general",
+      task: `Look up 12 ${adaWords}.`,
+      status: "complete",
+      report: `Found 12 ${adaWords}.`,
+      startedByTurnId: turn!.id,
+      transcript: [named],
+      startedAt: now,
+      endedAt: now,
+    });
+    const [handOff] = await db
+      .select({ assignmentId: representativeHandOff.assignmentId })
+      .from(representativeHandOff)
+      .where(eq(representativeHandOff.externalId, adaNumber));
+    const service = owner.context().assignments;
+    const redact = () =>
+      db.transaction((tx) =>
+        service.redact(tx, { userId: owner.user.id, ids: [handOff!.assignmentId] }),
+      );
+
+    expect((await redact()).conversationIds).not.toEqual([]);
+    expect((await redact()).conversationIds).toEqual([]);
+  });
+
   it("queues no pass for a Check-in's Turn with no delete during it", async () => {
     const owner = await withCheckIn();
     await owner.drain();
