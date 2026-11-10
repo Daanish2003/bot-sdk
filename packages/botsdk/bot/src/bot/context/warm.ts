@@ -32,6 +32,13 @@ const cacheLifetimeMs = { anthropic: 60 * minute, openai: 30 * minute } as const
 /** A cache this close to expiring (or closer) is warmed again. */
 const warmMarginMs = 5 * minute;
 
+/**
+ * A warm's Model call is aborted after this long, so a stalled Provider can't hold the Bot's warm
+ * lock and a pool connection until a restart. A warm writes one token, so a normal one answers in
+ * a few seconds; 45 s is well past that and well short of a Turn's wait.
+ */
+const warmTimeoutMs = 45_000;
+
 export type { WarmResult, WarmSkipped } from "@botsdk/client/bot/contract";
 
 /** The Provider of `model` when it has a warming call (slide 32): Anthropic, and OpenAI's GPT-5.6+. */
@@ -244,16 +251,33 @@ async function preparedCall(
 
   return async (session) => {
     let finished: StreamChunk[];
+    const abortController = new AbortController();
+    const timeout = AbortSignal.timeout(warmTimeoutMs);
+    const onTimeout = () => abortController.abort(timeout.reason);
+    timeout.addEventListener("abort", onTimeout, { once: true });
     try {
       const chunks: StreamChunk[] = [];
-      for await (const chunk of chat({
-        adapter,
-        threadId: botId,
-        messages,
-        systemPrompts: start.system.map((block) => block.text),
-      })) {
-        chunks.push(chunk);
-      }
+      // Raced with the abort too: a stalled Provider may never end its stream, abort or not.
+      const stopped = new Promise<never>((_, reject) =>
+        abortController.signal.addEventListener("abort", () => reject(timeout.reason), {
+          once: true,
+        }),
+      );
+      stopped.catch(() => {});
+      await Promise.race([
+        stopped,
+        (async () => {
+          for await (const chunk of chat({
+            adapter,
+            threadId: botId,
+            messages,
+            systemPrompts: start.system.map((block) => block.text),
+            abortController,
+          })) {
+            chunks.push(chunk);
+          }
+        })(),
+      ]);
       // A warm stops at its one token, so Anthropic ends it `max_tokens`, with the usage it billed.
       // Whatever that token began is dropped with these chunks.
       finished = chunks.map((chunk) =>
@@ -266,6 +290,8 @@ async function preparedCall(
     } catch (caught) {
       deps.logger.error(`Warming the cache of Bot ${botId} failed`, caught);
       return "unavailable";
+    } finally {
+      timeout.removeEventListener("abort", onTimeout);
     }
     const reported = reportedUsageOf(finished);
     const row = {
