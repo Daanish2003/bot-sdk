@@ -15,6 +15,8 @@ import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
+import type { Transaction } from "@botsdk/bot/plugin";
+import { closeCall } from "../src/server/call-end";
 import { insertUser } from "@ai-chat/test-support/users";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import { callEndDueMs, callLostJobName } from "../src/server/call-lost";
@@ -465,6 +467,81 @@ describe("a correction of the caller's number during the end", () => {
       .where(eq(representativeThread.id, (await calls())[0]!.threadId));
     // Their Turn still runs: the opt-out is the number's new holder's, not the caller's.
     expect(thread!.waitingFrom).not.toBeNull();
+  });
+
+  /** Ends the Call as a waiter would that read `staleNumber` before a correction landed. */
+  const closeStale = (
+    w: Awaited<ReturnType<typeof world>>,
+    call: { id: string; threadId: string; identityId: string | null },
+    staleNumber: string,
+    wrap: (tx: Transaction) => Transaction = (tx) => tx,
+  ) => {
+    const context = w.deps.parts.features.find(
+      ({ feature }) => feature.id === "representative",
+    )!.context;
+    return context.db.transaction((tx) =>
+      closeCall(
+        context,
+        wrap(tx),
+        new Date(),
+        { ...call, externalId: staleNumber, userId: w.user.id },
+        { status: "ended", text: () => "Transcript." },
+      ),
+    );
+  };
+
+  it("reads the caller of a Call with an identity once, though its number moved in the wait", async () => {
+    const w = await world();
+    await w.callStarts();
+    const [call] = await w.calls();
+    let reads = 0;
+    const counting = (tx: Transaction) =>
+      new Proxy(tx, {
+        get(target, key) {
+          if (key === "select") {
+            return (...args: Parameters<Transaction["select"]>) => {
+              const query = target.select(...args);
+              const from = query.from.bind(query);
+              return Object.assign(query, {
+                from: (table: Parameters<typeof from>[0]) => {
+                  if (table === representativeCustomerIdentity) reads += 1;
+                  return from(table);
+                },
+              });
+            };
+          }
+          const value: unknown = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+    await closeStale(w, call!, "+15550998", counting);
+
+    expect(reads).toBe(1);
+  });
+
+  it("goes by the number the wait found, for a Call kept before it had an identity", async () => {
+    const w = await world();
+    await w.callStarts();
+    const [call] = await w.calls();
+    const corrected = "+15550997";
+    await getTestDb()
+      .update(representativeCall)
+      .set({ identityId: null, externalId: corrected })
+      .where(eq(representativeCall.id, call!.id));
+    await getTestDb()
+      .update(representativeCustomerIdentity)
+      .set({ externalId: corrected, optedOutAt: new Date(), optOutSource: "keyword" })
+      .where(eq(representativeCustomerIdentity.externalId, caller));
+
+    await closeStale(w, { ...call!, identityId: null }, caller);
+
+    const [thread] = await getTestDb()
+      .select({ waitingFrom: representativeThread.waitingFrom })
+      .from(representativeThread)
+      .where(eq(representativeThread.id, call!.threadId));
+    // The opt-out at the number it now has keeps the Call from waking a Turn.
+    expect(thread!.waitingFrom).toBeNull();
   });
 
   it("takes the thread's lock before rewriting the Call, the order a request takes them in", async () => {
