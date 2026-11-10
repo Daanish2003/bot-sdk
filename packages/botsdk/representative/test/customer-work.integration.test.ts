@@ -13,7 +13,7 @@ import { insertUser } from "@ai-chat/test-support/users";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
 import { representative } from "../src";
-import { customerSummaryMarker } from "../src/server/customer-summary";
+import { isSummaryPass } from "./summary-pass";
 import { threadIdleMs } from "../src/server/idle";
 import {
   representativeHandOff,
@@ -388,7 +388,7 @@ describe("after the thread closes", () => {
     const forCustomer = "Parcel 4471 is ready at the depot.";
     const turns = [readsWork(), answers(), round(text("Let me check on that."))];
     const reply: Round = (options) => {
-      if (JSON.stringify(options.systemPrompts ?? []).includes(customerSummaryMarker)) {
+      if (isSummaryPass(options)) {
         return round(text("Asked where their work is."));
       }
       return turns.shift() ?? round();
@@ -451,9 +451,7 @@ describe("after the thread closes", () => {
         timeout: 10_000,
       })
       .toBe(1);
-    const passCalls = fake.calls.filter((call) =>
-      JSON.stringify(call.systemPrompts ?? []).includes(customerSummaryMarker),
-    );
+    const passCalls = fake.calls.filter((call) => isSummaryPass(call));
     expect(passCalls).toHaveLength(1);
     expect(JSON.stringify(passCalls[0]!.messages)).not.toContain(forCustomer);
     const summaries = await rpc.representative.customerSummaryList({ id: ada.id });
