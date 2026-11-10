@@ -444,10 +444,7 @@ describe("the Turn a finished Call wakes", () => {
 
   it("failing, still gets the Call to the Bot, requests first, though no text can go", async () => {
     const { callStarts, hook, settle, entries, assignments, turns, threadRow, decisions } =
-      await world(
-        Array.from({ length: 10 }, () => round(runError("The Provider is down"))),
-        { accounts: true },
-      );
+      await world([round(runError("The Provider is down"))], { accounts: true });
     await callStarts();
     await hook("request", {
       callId: "call-1",
@@ -459,7 +456,8 @@ describe("the Turn a finished Call wakes", () => {
       transcript: [{ role: "caller", text: "a".repeat(4_000) }],
     });
 
-    for (let tries = 0; tries < 6; tries++) await settle(3_600_000);
+    // Well inside the hand-off's 30-minute due time: past it, the still-open Assignment is owed a stall note.
+    await settle();
 
     expect((await turns()).map((turn) => turn.status)).toEqual(["failed"]);
     await expect.poll(async () => (await threadRow()).turnId, { timeout: 10_000 }).toBeNull();
