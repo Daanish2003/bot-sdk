@@ -16,7 +16,7 @@ import {
   representativeThread,
   representativeThreadMessage,
 } from "../src/server/db/schema";
-import { declineReason } from "../src/server/declines";
+import { declineReason, type DeclineReason } from "../src/server/declines";
 import { inboundLimit } from "../src/server/inbound-limit";
 import { representativeFeature } from "../src/server/plugin";
 import { receiveCustomerMessage } from "../src/server/thread-turns";
@@ -230,5 +230,46 @@ describe("declineReason", () => {
 
     await world.sent(inboundLimit - 1);
     expect(await world.asked()).toBe("over_limit");
+  });
+});
+
+/*
+ * `declineReason` states the rules `receiveMessage` applies, which the two keep in different places
+ * (ticket #1389). A Customer is in each state by the paths that make it, then asked about, then sends a
+ * real message: the check saying no must be a message that starts no Turn, and null one that does.
+ *
+ * Not covered, since they only apply to a message: STOP and START are kept by the text path whatever the
+ * limit says, and an emergency keyword is exempt from it. A Call has neither, so the check doesn't, and
+ * this test sends a plain message.
+ */
+describe("declineReason and the text inbound path", () => {
+  type World = Awaited<ReturnType<typeof instance>>;
+  const states: [DeclineReason | null, (world: World) => Promise<unknown>][] = [
+    [null, async () => {}],
+    ["over_limit", (world) => world.sent(inboundLimit - 1)],
+    ["blocked", (world) => world.block()],
+    ["opted_out", (world) => world.arrives("stop")],
+    ["taken_over", (world) => world.takeOver()],
+    ["off", (world) => world.switchOff()],
+    ["no_release", (world) => world.withoutRelease()],
+  ];
+
+  it.each(states)("agrees about a Customer who is %s", async (reason, makeIt) => {
+    const world = await instance();
+    await world.arrives("Hello");
+    await makeIt(world);
+
+    const asked = await world.asked();
+    const received = await world.arrives("Is anyone there?");
+    // A switched-off Representative, or one with no Release, still has a Turn queued, which finds
+    // nobody to answer and says nothing: the Customer is told so instead (`sendUnavailableNotice`).
+    const [told] = await getTestDb()
+      .select({ n: count() })
+      .from(representativeOutboundDecision)
+      .where(eq(representativeOutboundDecision.kind, "unavailable_notice"));
+    const served = received?.jobId != null && told!.n === 0;
+
+    expect(asked).toBe(reason);
+    expect(served).toBe(asked === null);
   });
 });
