@@ -170,12 +170,13 @@ describe("createGuardedFetch", () => {
     expect(await response.text()).toBe("arrived");
   });
 
-  it("keeps the authorization and cookie on a same-origin redirect, and drops them across origins", async () => {
-    const seen: Record<string, { authorization?: string; cookie?: string }> = {};
+  it("keeps the credentials on a same-origin redirect, and drops them across origins", async () => {
+    const seen: Record<string, Record<string, string | undefined>> = {};
     handler = (req, res) => {
       seen[`${req.headers.host?.split(":")[0]}${req.url}`] = {
         authorization: req.headers.authorization,
         cookie: req.headers.cookie,
+        proxy: req.headers["proxy-authorization"],
       };
       if (req.url === "/start") {
         res.writeHead(302, { location: "/same" });
@@ -190,15 +191,24 @@ describe("createGuardedFetch", () => {
     const fetch = guard({ resolve: async () => [publicAddress] });
 
     const response = await fetch(`http://first.test:${port}/start`, {
-      headers: { authorization: "Bearer user-token", cookie: "session=1", accept: "text/plain" },
+      headers: {
+        authorization: "Bearer user-token",
+        cookie: "session=1",
+        "proxy-authorization": "Basic proxy",
+      },
     });
 
     expect(await response.text()).toBe("arrived");
     expect(seen["first.test/same"]).toEqual({
       authorization: "Bearer user-token",
       cookie: "session=1",
+      proxy: "Basic proxy",
     });
-    expect(seen["other.test/end"]).toEqual({ authorization: undefined, cookie: undefined });
+    expect(seen["other.test/end"]).toEqual({
+      authorization: undefined,
+      cookie: undefined,
+      proxy: undefined,
+    });
   });
 
   it("refuses a redirect to a literal private address", async () => {

@@ -100,6 +100,7 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         headers = new Headers(headers);
         headers.delete("authorization");
         headers.delete("cookie");
+        headers.delete("proxy-authorization");
       }
       url = next;
       if (response.status === 303 || (method === "POST" && response.status < 307)) {
