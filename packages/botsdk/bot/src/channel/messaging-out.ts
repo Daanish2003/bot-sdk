@@ -1,4 +1,4 @@
-import { isChannelAnswerable } from "@botsdk/client/bot/rich-control";
+import { isApproval } from "@botsdk/client/bot/rich-control";
 import type { BotMessage } from "@botsdk/client/bot/turn";
 import type { Block } from "@botsdk/client/message-format";
 
@@ -21,17 +21,11 @@ const list = (ordered: boolean, items: string[]): Block => ({
   items: items.map((item) => [line(item)]),
 });
 
-/** A paragraph that is one link into the app. */
-export const appLink = (lead: string, href: string): Block => ({
-  type: "paragraph",
-  children: [{ type: "link", href, children: [{ type: "text", text: lead }] }],
-});
-
 /**
  * One Bot Message as a messaging Channel's outbound Message (spec #1044, "How a Message shows on
  * Telegram"): its text, then its Rich control (`control`) reduced the way email reduces it. A choice is a numbered
  * list with one button per option (a typed number answers too) and Other when offered, an Approval
- * has Approve and Deny (but a release Approval, answered only on its page, is a link), a Secret request is only a link into the app, and the Computer and
+ * has Approve and Deny, a Secret request is only a link into the app, and the Computer and
  * Show me cards are one line and a link. Buttons carry the Message's `id` as their control. `files`
  * are sent when their bytes are known and within `uploadLimit`; the rest are listed with a link.
  * `appUrl` is the Bot's page, or `null` when the Host has none (no link is written).
@@ -48,7 +42,13 @@ export function messagingBody(
   let buttons: MessagingButtons | undefined;
   let sent: OutboundMessage["files"];
   const control = message.control;
-  const link = (lead: string): Block => (appUrl ? appLink(lead, appUrl) : line(lead));
+  const link = (lead: string): Block =>
+    appUrl
+      ? {
+          type: "paragraph",
+          children: [{ type: "link", href: appUrl, children: [{ type: "text", text: lead }] }],
+        }
+      : line(lead);
   switch (control?.kind) {
     case "choice":
       if (control.answer) break;
@@ -87,14 +87,10 @@ export function messagingBody(
     case "demonstration":
       lines.push(link("Show me in the app"));
       break;
-    case "release_approval":
-    case "fact_approval":
-      lines.push(link("Review it in the app"));
-      break;
     case undefined:
       break;
     default:
-      if (isChannelAnswerable(control?.kind)) {
+      if (isApproval(control?.kind)) {
         buttons = {
           control: message.id,
           options: [

@@ -9,7 +9,6 @@ import {
   enableFeature,
   featureMigrations,
   featurePlugin,
-  featureRoutes,
   featureRouter,
   type AnyFeature,
   type FeatureApis,
@@ -37,9 +36,7 @@ import type { RoomsApi } from "./bot/rooms-api";
 import type { ScreensApi } from "./bot/screens-api";
 import type { SecretsApi } from "./bot/secrets-api";
 import type { AssignmentsApi } from "./bot/assignments-api";
-import { representativeLoopService } from "./bot/agent-loop";
 import { assignmentsService } from "./bot/assignments";
-import { factApprovalsService, releaseApprovalsService } from "./bot/safety";
 import type { CheckInsApi, RoutinesApi } from "./bot/routines-api";
 import type { TriggersApi } from "./bot/triggers-api";
 import type { DemonstrationsApi } from "./bot/demonstrations-api";
@@ -47,8 +44,7 @@ import type { HelpersApi } from "./bot/helpers-api";
 import type { ReviewsApi } from "./bot/reviews-api";
 import type { RulesApi } from "./bot/rules-api";
 import type { NotificationsApi } from "./bot/notifications-api";
-import { type PagesApi, pagesService } from "./bot/pages-api";
-import { channel, channelAccountsService, createChannels, noChannels } from "./bot/channels";
+import { channel, createChannels, noChannels } from "./bot/channels";
 import { hintChanged } from "./bot/conversation";
 import type { ChannelAdapter, ChannelApi } from "./channel/internal";
 import { computerSleepJob, createComputer } from "./computer/internal";
@@ -220,8 +216,6 @@ export type BotSdk = {
   rules: RulesApi;
   /** The core's notification settings (spec #1024): Quiet hours and where Messages go. */
   notifications: NotificationsApi;
-  /** The core's Pages (ticket #1300): the user's unacknowledged alerts, and acknowledging them. */
-  pages: PagesApi;
   /** The core's Channels (spec #871): the inbound handler of each adapter in the channels slot. */
   channels: ChannelApi;
   /**
@@ -304,7 +298,6 @@ export type GivenContext = Partial<
     | "reviews"
     | "rules"
     | "notifications"
-    | "pages"
     | "channels"
   > & {
     /** A runner built by the test seam, in place of one over the runner slot's Executor. */
@@ -369,13 +362,6 @@ export function buildBotSdk(
     "models",
     "threads",
     "assignments",
-    "representativeLoop",
-    "releaseApprovals",
-    "factApprovals",
-    "pages",
-    "channelAccounts",
-    "pubsub",
-    "counters",
     ...(options.computer ? ["computer"] : []),
   ]);
   const ids = new Set<string>();
@@ -396,7 +382,7 @@ export function buildBotSdk(
     ...features.map((feature): BotSdkPlugin => ({
       id: feature.id,
       router: featureRouter(feature),
-      routes: featureRoutes(feature, () => enabled.find((one) => one.feature === feature)!.context),
+      routes: feature.routes,
     })),
   ];
   const router = mergeRouters(declared);
@@ -418,22 +404,9 @@ export function buildBotSdk(
     hintChanged: (conversationId) => hintChanged(sdk, conversationId),
   };
   // Each feature in the Host's order, with the core services it needs.
-  const representativeLoop = representativeLoopService(sdk);
-  const releaseApprovals = releaseApprovalsService(sdk);
-  const factApprovals = factApprovalsService(sdk);
-  const pages = pagesService(sdk);
-  const channelAccounts = channelAccountsService(sdk);
   const enabled = features.map((feature) =>
-    enableFeature(
-      sdk,
-      feature,
-      threads,
-      (own, turnBehind) => assignmentsService(sdk, own, turnBehind),
-      representativeLoop,
-      releaseApprovals,
-      factApprovals,
-      pages,
-      channelAccounts,
+    enableFeature(sdk, feature, threads, (own, turnBehind) =>
+      assignmentsService(sdk, own, turnBehind),
     ),
   );
   const plugins = [...core, ...enabled.map(featurePlugin)];
@@ -469,7 +442,6 @@ export function buildBotSdk(
     reviews: sdk.reviews,
     rules: sdk.rules,
     notifications: sdk.notifications,
-    pages: sdk.pages,
     channels: sdk.channels,
     migrate: () => migrateSchema(options.database, featureMigrations(features)),
     start: async () => {
@@ -642,7 +614,6 @@ function buildContext(
       subscribe: true,
       unsubscribe: true,
     }),
-    pages: botsStub<PagesApi>({ list: true, acknowledge: true }),
   };
 }
 

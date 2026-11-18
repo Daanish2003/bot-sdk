@@ -178,11 +178,6 @@ export function AssignmentItem({
           {result && (
             <>
               <p className="whitespace-pre-wrap text-muted-foreground">{result.outcome}</p>
-              {result.forCustomer && (
-                <p className="whitespace-pre-wrap text-muted-foreground">
-                  {t("bots.assignmentForCustomer", { text: result.forCustomer })}
-                </p>
-              )}
               {result.when && (
                 <p className="text-muted-foreground">
                   {t("bots.assignmentWhen", { when: result.when })}

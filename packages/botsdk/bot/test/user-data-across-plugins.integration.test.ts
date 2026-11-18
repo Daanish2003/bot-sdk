@@ -16,7 +16,6 @@ import {
   botSecret,
   customRule,
   notificationSettings,
-  page,
   pushSubscription,
   linkCode,
   linkedIdentity,
@@ -33,22 +32,6 @@ import { computerBlobKey } from "../src/computer/internal";
 import { readTokens, saveTokens } from "@botsdk/mcp/server/connections";
 import { mcpConnection } from "@botsdk/mcp/server/db/connection";
 import { mcp } from "@botsdk/mcp";
-import { representative } from "@botsdk/representative";
-import {
-  representative as representativeTable,
-  representativeCustomer,
-  representativeCustomerIdentity,
-  representativeProfileField,
-  representativeProfileValue,
-  representativeFact,
-  representativeFactLog,
-  representativeGap,
-  representativeTopic,
-  representativeFactProposal,
-  representativeRelease,
-  representativeThread,
-  representativeCustomerSummary,
-} from "@botsdk/representative/server/db/schema";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
 import { memorySettings } from "@botsdk/memory/server/schema";
 import { listCredentials, saveCredentials, models } from "../src/models/internal";
@@ -74,23 +57,8 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/** Every table of the composed schema and the mcp, memory and representative features' with a `user_id` column, with that column. */
-const userTables = [
-  ...Object.values(schema),
-  mcpConnection,
-  memorySettings,
-  representativeTable,
-  representativeCustomer,
-  representativeCustomerIdentity,
-  representativeProfileField,
-  representativeProfileValue,
-  representativeFact,
-  representativeFactLog,
-  representativeGap,
-  representativeTopic,
-  representativeFactProposal,
-  representativeCustomerSummary,
-].flatMap((value) => {
+/** Every table of the composed schema and the mcp and memory features' with a `user_id` column, with that column. */
+const userTables = [...Object.values(schema), mcpConnection, memorySettings].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
   const column = columns.find((candidate) => candidate.name === "user_id");
@@ -201,17 +169,6 @@ async function seedEverything(
       createdAt: new Date(),
     });
 
-  await getTestDb().insert(page).values({
-    id: uuidv7(),
-    userId: user.id,
-    cause: "assignment_overdue",
-    urgency: "routine",
-    title: "An Assignment stalled",
-    text: "Your Bot has not finished.",
-    path: "/",
-    createdAt: new Date(),
-  });
-
   await getTestDb()
     .insert(linkedIdentity)
     .values({
@@ -246,140 +203,6 @@ async function seedEverything(
 
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
   await saveTokens(deps, user.id, "linear", { accessToken: "t", tokenType: "Bearer", scope: "" });
-  // A Customer of the owner's, with an identity.
-  const customerId = uuidv7();
-  await getTestDb().insert(representativeCustomer).values({ id: customerId, userId: user.id });
-  await getTestDb()
-    .insert(representativeCustomerIdentity)
-    .values({ id: uuidv7(), userId: user.id, customerId, channel: "fake", externalId: "+1" });
-  // An own profile field, and the Customer's value of it.
-  const profileFieldId = uuidv7();
-  await getTestDb()
-    .insert(representativeProfileField)
-    .values({ id: profileFieldId, userId: user.id, name: "Equipment" });
-  await getTestDb().insert(representativeProfileValue).values({
-    id: uuidv7(),
-    userId: user.id,
-    customerId,
-    fieldId: profileFieldId,
-    value: "Boiler",
-    source: "owner",
-    status: "confirmed",
-    recordedAt: new Date(),
-  });
-  // A Published fact, and the log entry of adding it.
-  const factAt = new Date("2026-06-01T09:00:00Z");
-  const loggedFact = {
-    type: "money",
-    topic: "Prices",
-    value: "45 USD",
-    validFrom: null,
-    validUntil: null,
-  } as const;
-  await getTestDb()
-    .insert(representativeFact)
-    .values({
-      id: uuidv7(),
-      userId: user.id,
-      key: "price.haircut",
-      ...loggedFact,
-      createdAt: factAt,
-      updatedAt: factAt,
-    });
-  await getTestDb().insert(representativeFactLog).values({
-    id: uuidv7(),
-    userId: user.id,
-    key: "price.haircut",
-    action: "add",
-    old: null,
-    new: loggedFact,
-    at: factAt,
-  });
-  // A topic of the owner's.
-  await getTestDb().insert(representativeTopic).values({
-    id: uuidv7(),
-    userId: user.id,
-    name: "Billing",
-  });
-  // A Gap the owner has not closed.
-  await getTestDb().insert(representativeGap).values({
-    id: uuidv7(),
-    userId: user.id,
-    question: "Do you do weddings?",
-    normalized: "do you do weddings",
-    firstAt: factAt,
-    lastAt: factAt,
-  });
-  // A Bot's proposed change to the fact, waiting for the owner.
-  await getTestDb()
-    .insert(representativeFactProposal)
-    .values({
-      id: uuidv7(),
-      userId: user.id,
-      botId,
-      key: "price.haircut",
-      proposed: { ...loggedFact, value: "50 USD" },
-      why: "The price list changed.",
-      cardId: uuidv7(),
-      postedAt: factAt,
-      expiresAt: new Date(factAt.getTime() + 7 * 24 * 60 * 60 * 1000),
-    });
-  // A Representative reporting to the Bot, with a Release.
-  const representativeId = uuidv7();
-  await getTestDb()
-    .insert(representativeTable)
-    .values({
-      id: representativeId,
-      userId: user.id,
-      botId,
-      name: "Front desk",
-      draft: {
-        jobText: "Answer",
-        switches: {},
-        skills: [],
-        tools: ["reply"],
-        model: null,
-        tests: [],
-        documents: [],
-        emergencyText: "Call your local emergency number",
-        emergencyKeywords: [],
-      },
-    });
-  await getTestDb()
-    .insert(representativeRelease)
-    .values({
-      id: uuidv7(),
-      representativeId,
-      number: 1,
-      content: {
-        jobText: "Answer",
-        switches: {},
-        skills: [],
-        tools: ["reply"],
-        model: null,
-        documentSnapshot: null,
-        emergencyText: "Call your local emergency number",
-        emergencyKeywords: [],
-        tests: [],
-      },
-    });
-  // A closed thread of the Customer's, and its summary.
-  const threadId = uuidv7();
-  await getTestDb().insert(representativeThread).values({
-    id: threadId,
-    customerId,
-    representativeId,
-    state: "closed",
-    lastChannel: "fake",
-    lastExternalId: "+1",
-  });
-  await getTestDb().insert(representativeCustomerSummary).values({
-    id: uuidv7(),
-    threadId,
-    userId: user.id,
-    text: "Asked about prices.",
-    createdAt: factAt,
-  });
   await getTestDb()
     .insert(modelSettings)
     .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
@@ -412,7 +235,7 @@ describe("deleteUser across plugins", () => {
     const deps = createTestSdk({
       blobStore: store,
       computer: fake.provider,
-      features: [mcp(), representative()],
+      features: [mcp()],
     });
     const owner = await insertUser();
     const other = await insertUser();
@@ -599,7 +422,7 @@ describe("exportUser across plugins", () => {
     );
 
     expect(exported.extra).toEqual({ savedPrompts: [] });
-    expect(exported.bot as BotExport).toEqual({ bots: [], rooms: [], assignments: [], pages: [] });
+    expect(exported.bot as BotExport).toEqual({ bots: [], rooms: [], assignments: [] });
     expect(exported).not.toHaveProperty("memory");
     expect(exported).not.toHaveProperty("savedPrompts");
   });
@@ -635,7 +458,7 @@ describe("sdk.users on a Host's instance", () => {
     const exported = await sdk.users.export({ userId: owner.id });
     expect(exported).toMatchObject({
       version: 2,
-      bot: { bots: [], rooms: [], assignments: [], pages: [] },
+      bot: { bots: [], rooms: [], assignments: [] },
       models: { imageModel: null },
       extra: { owner: owner.id },
     });

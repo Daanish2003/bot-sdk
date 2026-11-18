@@ -14,21 +14,12 @@ export {
   type CoreService,
   type Feature,
   type FeatureContext,
-  type PublicRoute,
   type FeatureDefinition,
   type FeaturePrompt,
   type FeaturePromptTurn,
   type FeatureTurn,
 } from "./feature";
 export { assignmentEnded, type AssignmentEnded, type AssignmentsService } from "./bot/assignments";
-export type { PagesService } from "./bot/pages-api";
-export type {
-  RepresentativeIdentity,
-  RepresentativeLoopKit,
-  RepresentativeLoopOptions,
-  RepresentativeLoopResult,
-  RepresentativeLoopService,
-} from "./bot/agent-loop";
 export { dropFeatureTables, type MigrateConfigModule } from "./migrate-cli";
 export {
   defineJob,

@@ -211,7 +211,6 @@ describe("assigning work to a Bot", () => {
           finish({
             status: "done",
             outcome: "Drafted.",
-            for_customer: "It's ready.",
             when: "2026-11-05T09:00:00+00:00",
           }),
           quiet,
@@ -261,7 +260,6 @@ describe("assigning work to a Bot", () => {
       const [done] = await client.assignments.list({ botId: b.Writer.id });
       expect(done!.result).toEqual({
         outcome: "Drafted.",
-        forCustomer: "It's ready.",
         when: "2026-11-05T09:00:00+00:00",
       });
       expect(done!.endedAt).toBeInstanceOf(Date);
@@ -269,7 +267,6 @@ describe("assigning work to a Bot", () => {
       await expect.poll(() => statusesOf(b.Scout.id), poll).toEqual(["complete", "complete"]);
       const results = JSON.stringify(fakes.Scout.calls.at(-1)!.messages.slice(1));
       expect(results).toContain("Drafted.");
-      expect(results).toContain("It's ready.");
       expect(results).toContain("Writer's words, not the user's");
       const scoutTriggers = await triggersOf(b.Scout.id);
       expect(scoutTriggers.at(-1)).toMatchObject({ source: "assignment", channel: "assignment" });
@@ -278,7 +275,7 @@ describe("assigning work to a Bot", () => {
   );
 
   it(
-    "offers its tools as deferred ones, and says for_customer may be shown to a Customer",
+    "offers its tools as deferred ones, and describes one when asked",
     async () => {
       const {
         fakes,
@@ -301,8 +298,8 @@ describe("assigning work to a Bot", () => {
       const listed = JSON.stringify(first.messages[0]);
       expect(listed).toContain("assign_work:");
       expect(listed).toContain("finish_assignment:");
-      expect(JSON.stringify(toolResultsIn(fakes.Scout.calls[1]))).toMatch(
-        /for_customer[^}]*may be shown to a Customer/,
+      expect(JSON.stringify(toolResultsIn(fakes.Scout.calls[1]))).toContain(
+        "Whoever assigned it gets this result",
       );
     },
     timeout,

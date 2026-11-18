@@ -86,7 +86,7 @@ export const botAssignment = botsdkSchema.table(
     status: botAssignmentStatus("status").notNull(),
     /** What its Bot finished it with, set exactly when it is `done` or `failed`. */
     result: jsonb("result").$type<AssignmentResult>(),
-    /** When a feature flagged it overdue (`markOverdue`). Being overdue is a flag, never a status. */
+    /** Reserved: nothing sets it yet. Being overdue is a flag, never a status. */
     overdueAt: timestamp("overdue_at"),
     /**
      * The budget (#1184): how many model calls, and how much money where a price is known, may be
@@ -125,10 +125,7 @@ export const botAssignment = botsdkSchema.table(
   ],
 );
 
-/**
- * One append-only row of an Assignment's log, but for its note being redacted: a status change, who
- * made it, and in which Turn.
- */
+/** One append-only row of an Assignment's log: a status change, who made it, and in which Turn. */
 export const botAssignmentLog = botsdkSchema.table(
   "bot_assignment_log",
   {

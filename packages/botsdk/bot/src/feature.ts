@@ -20,14 +20,7 @@ import type { Context } from "./context";
 import type { FeatureMigrations, Migration } from "./migrate";
 import type { BotSdkContext, BotSdkPlugin, Route, Transaction } from "./plugin";
 import { requireAuth } from "./procedures";
-import type { RepresentativeLoopService } from "./bot/agent-loop";
 import type { AssignmentsService } from "./bot/assignments";
-import type { ChannelAccountsService } from "./bot/channels";
-import type { PubSub } from "./chat/pubsub";
-import type { AuthVerdict, DmarcPolicy, MessagingFile } from "./channel/internal";
-import type { PagesService } from "./bot/pages-api";
-import type { FactApprovalsService, ReleaseApprovalsService } from "./bot/safety";
-import type { CounterStore } from "./chat/counters";
 import type { ComputerApi } from "./computer/internal";
 import type { ModelsApi } from "./models/internal";
 import type { EnqueueOptions, JobDefinition } from "./runner/internal";
@@ -39,33 +32,15 @@ import type { EnqueueOptions, JobDefinition } from "./runner/internal";
  */
 
 /** The core services a feature may declare in `needs`. */
-export type CoreService =
-  | "assignments"
-  | "channelAccounts"
-  | "computer"
-  | "counters"
-  | "factApprovals"
-  | "models"
-  | "pages"
-  | "pubsub"
-  | "releaseApprovals"
-  | "representativeLoop"
-  | "threads";
+export type CoreService = "assignments" | "computer" | "models" | "threads";
 
 /** What a feature tells a Conversation's open tabs. */
 export type ThreadsService = { hintChanged: (conversationId: string) => Promise<void> };
 
 type Services = {
   assignments: AssignmentsService;
-  channelAccounts: ChannelAccountsService;
   computer: ComputerApi;
-  counters: CounterStore;
   models: ModelsApi;
-  pages: PagesService;
-  pubsub: PubSub;
-  factApprovals: FactApprovalsService;
-  releaseApprovals: ReleaseApprovalsService;
-  representativeLoop: RepresentativeLoopService;
   threads: ThreadsService;
 };
 
@@ -80,8 +55,6 @@ export type FeatureContext<Needs extends CoreService = never> = {
   fetchAllowHosts: BotSdkContext["fetchAllowHosts"];
   /** The keyring (ADR 0010) a feature encrypts its secrets under: the first encrypts, every entry decrypts. */
   keyring: BotSdkContext["keyring"];
-  /** Whether the Host has Banned the user: no Turn of a feature starts while it does (ticket #1299). */
-  isUserBlocked: BotSdkContext["isUserBlocked"];
   /** The runner's jobs: queue one of the feature's `jobs` in the caller's transaction. */
   jobs: {
     enqueueIn: <P>(
@@ -114,60 +87,6 @@ export type FeatureContext<Needs extends CoreService = never> = {
     wake: () => void;
   };
 } & Pick<Services, Needs>;
-
-/** A route a feature serves with no signed-in user (`publicRoutes`). Its path matches as a `Route`'s does. */
-export type PublicRoute<Needs extends CoreService = never> = {
-  method: Route["method"];
-  path: Route["path"];
-  handle: (
-    request: Request,
-    args: {
-      /** The feature's own context: not the core's. */
-      context: FeatureContext<Needs>;
-      /** The `:name` segments of the route's path. */
-      params: Record<string, string>;
-      /** `basePath` without a trailing slash. */
-      basePath: string;
-    },
-  ) => Promise<Response>;
-};
-
-/** An inbound message on a Channel account a feature holds, as its `onStranger` gets it. */
-export type StrangerMessage = {
-  /** The platform it came on, such as `telegram`. */
-  channel: string;
-  /** The Channel account it reached. */
-  account: { id: string; handle: string };
-  /** Who sent it, and `verified`: whether the platform authenticates senders, so this can't be spoofed. */
-  sender: { id: string; handle: string; workspace?: string; verified: boolean };
-  /** The text or caption, as the sender wrote it; empty for a file alone or a press. */
-  text: string;
-  /** What's attached, as the platform describes it: nothing has been downloaded. */
-  files: readonly MessagingFile[];
-};
-
-/**
- * An inbound email that woke no Bot, as a feature's `onEmail` gets it (spec #1176). The core
- * has already dropped a redelivery, an automatic reply, mail from the Channel's own domain, and mail
- * with no Message-ID or no text.
- */
-export type StrangerEmail = {
-  /** The recipients' bare addresses, lowercase. */
-  to: string[];
-  /** The sender's bare address, lowercase. */
-  from: string;
-  /** The Message-ID, without its angle brackets. */
-  messageId: string;
-  subject: string;
-  /**
-   * What the mail says, as a Bot reads it: the new text with the quoted history stripped, the
-   * subject first unless it replies in a thread, attachments named, and a forward fenced as untrusted.
-   */
-  text: string;
-  headers: Record<string, string>;
-  /** The provider's DMARC verdict, and the policy the sender's domain publishes. */
-  dmarc: { verdict: AuthVerdict; policy: DmarcPolicy };
-};
 
 /** The Turn a feature's `tools` and `afterTurn` are called for. */
 export type FeatureTurn = { id: string; userId: string; botId: string; conversationId: string };
@@ -381,38 +300,6 @@ export type FeatureDefinition<
    */
   resetBot?: (botId: string, userId: string, context: FeatureContext<Needs>) => Promise<void>;
   /**
-   * Stops the feature's own running Turns of user `userId`, as a Ban stops a Bot's (ticket #1299): the
-   * Host's `stopTurns` calls it. It must leave nothing running, and may be called with none.
-   */
-  stopTurns?: (userId: string, context: FeatureContext<Needs>) => Promise<void>;
-  /**
-   * The user whose holder of Channel account `id` the feature keeps, or null when it isn't the feature's
-   * (ticket #1331). Saving an account reads it, in the save's transaction, so the account moves only
-   * between one user's holders. A move between two features' holders isn't built: one feature holds
-   * accounts today.
-   */
-  channelAccountOwner?: (
-    tx: Transaction,
-    id: string,
-    context: FeatureContext<Needs>,
-  ) => Promise<string | null>;
-  /**
-   * Takes an inbound message on a Channel account the feature holds (`channelAccountOwner`), ahead of
-   * the Linked identity check: everyone there is a stranger to the core, and link codes do nothing. The
-   * feature decides what it becomes; the core starts no Bot Conversation and no Turn. The core has
-   * already dropped a resent update and anything not from a private chat. A throw is logged and the
-   * update is dropped, except on a webhook platform's account, which answers 503 so the platform
-   * sends it again (#1363).
-   */
-  onStranger?: (message: StrangerMessage, context: FeatureContext<Needs>) => Promise<void>;
-  /**
-   * Takes an inbound email that woke no Bot (spec #1176): true when one of its recipients is an
-   * address the feature gives out, whatever the feature then made of it, and false to leave it dropped.
-   * A Bot's address comes first: only mail the Bot rule refuses (anyone but the owner's verified
-   * email, or no DMARC pass) reaches this. A throw fails the inbound request, and the provider retries.
-   */
-  onEmail?: (mail: StrangerEmail, context: FeatureContext<Needs>) => Promise<boolean>;
-  /**
    * What the Turn changed of the feature, read from its transcript as the Turn ends (stopped and
    * lost ones too, from what they recorded), with no reads or writes: the core stores it on the
    * Turn. A throw is logged and stores none of the feature's changes.
@@ -437,12 +324,6 @@ export type FeatureDefinition<
   };
   /** Non-RPC routes, under `basePath`, until spec 3 replaces them. They get the whole core context. */
   routes?: Route[];
-  /**
-   * Routes served with no signed-in user, under `basePath`, before `getUser` runs. Unlike `routes`,
-   * a handler gets only the feature's own context, never the core's. A method and path another
-   * route has throws.
-   */
-  publicRoutes?: PublicRoute<Needs>[];
   /** Re-encrypts what the feature stores under the keyring's first secret (`sdk.rotateKeys`). */
   rotateKeys?: (
     context: FeatureContext<Needs>,
@@ -541,7 +422,6 @@ const instanceKeys: Record<keyof BotSdk, true> = {
   reviews: true,
   rules: true,
   notifications: true,
-  pages: true,
   channels: true,
   migrate: true,
   start: true,
@@ -559,15 +439,8 @@ const coreTableNames = new Set(
 
 const serviceNames: Record<CoreService, string> = {
   assignments: "the Assignments",
-  channelAccounts: "the Channel accounts",
   computer: "the Computer",
-  counters: "the rate limit counters",
-  factApprovals: "the fact Approvals",
   models: "the Models",
-  pages: "the Pages",
-  pubsub: "the pub/sub",
-  releaseApprovals: "the release Approvals",
-  representativeLoop: "the Representative loop",
   threads: "the Conversation threads",
 };
 
@@ -610,27 +483,6 @@ export type EnabledFeature = {
   contextInTurn: (turnId: string) => FeatureContext<CoreService>;
 };
 
-/**
- * A feature's routes as the HTTP layer serves them: its `routes`, and its `publicRoutes` as public
- * routes whose handler gets the feature's context. `context` is read when a request arrives, since
- * the routes are merged before the contexts exist.
- */
-export function featureRoutes(
-  feature: AnyFeature,
-  context: () => FeatureContext<CoreService>,
-): Route[] {
-  return [
-    ...(feature.routes ?? []),
-    ...(feature.publicRoutes ?? []).map((route): Route => ({
-      method: route.method,
-      path: route.path,
-      public: true,
-      handle: (request, { params, basePath }) =>
-        route.handle(request, { context: context(), params, basePath }),
-    })),
-  ];
-}
-
 /** The instance's enabled features, in the order the Host listed them. */
 export function enabledFeatures(sdk: Pick<BotSdkContext, "parts">): readonly EnabledFeature[] {
   return sdk.parts.features;
@@ -654,22 +506,12 @@ export function enableFeature(
   feature: AnyFeature,
   threads: ThreadsService,
   assignmentsOf: (feature: AnyFeature, turnBehind?: string) => AssignmentsService,
-  representativeLoop: RepresentativeLoopService,
-  releaseApprovals: ReleaseApprovalsService,
-  factApprovals: FactApprovalsService,
-  pages: PagesService,
-  channelAccounts: ChannelAccountsService,
 ): EnabledFeature {
   const needs = feature.needs ?? [];
   const context: FeatureContext<CoreService> = {
     ...contextOf(sdk, needs, threads),
     // Each feature's own: it acts only on what it assigned.
     ...(needs.includes("assignments") && { assignments: assignmentsOf(feature) }),
-    ...(needs.includes("representativeLoop") && { representativeLoop }),
-    ...(needs.includes("releaseApprovals") && { releaseApprovals }),
-    ...(needs.includes("factApprovals") && { factApprovals }),
-    ...(needs.includes("pages") && { pages }),
-    ...(needs.includes("channelAccounts") && { channelAccounts }),
   };
   return {
     feature,
@@ -694,7 +536,6 @@ export function contextOf(
     fetch: sdk.fetch,
     fetchAllowHosts: sdk.fetchAllowHosts,
     keyring: sdk.keyring,
-    isUserBlocked: sdk.isUserBlocked,
     jobs: {
       enqueueIn: (tx, job, payload, options) =>
         sdk.runner.enqueueIn(tx, job.name, payload, options),
@@ -707,9 +548,7 @@ export function contextOf(
   return {
     ...base,
     ...(needs.includes("computer") && { computer: sdk.computer }),
-    ...(needs.includes("counters") && { counters: sdk.counters }),
     ...(needs.includes("models") && { models: sdk.models }),
-    ...(needs.includes("pubsub") && { pubsub: sdk.pubsub }),
     ...(needs.includes("threads") && { threads }),
   } as FeatureContext<CoreService>;
 }

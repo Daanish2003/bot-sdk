@@ -13,7 +13,6 @@ import { databaseOf } from "../src/storage";
 import { mcp } from "@botsdk/mcp";
 import { featureMigrations } from "../src/feature";
 import { memory } from "@botsdk/memory";
-import { representative } from "@botsdk/representative";
 import {
   migrationParts,
   migrationsOf,
@@ -152,7 +151,6 @@ const coreTables = [
   "model_settings",
   "notification_settings",
   "push_subscription",
-  "page",
   "secret",
   "usage",
   "user_credentials",
@@ -195,7 +193,6 @@ describe("chat.migrate()", () => {
       "message_role",
       "message_status",
       "notification_route",
-      "page_urgency",
       "usage_kind",
     ]);
 
@@ -226,6 +223,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261104135900_pages" },
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
+      { feature: "core", migration: "20261118094916_drop_representative" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -287,6 +285,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261104135900_pages" },
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
+      { feature: "core", migration: "20261118094916_drop_representative" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -385,75 +384,21 @@ describe("chat.migrate()", () => {
     );
   });
 
-  it("moves each Customer's name into their profile as a confirmed owner value, and drops the column (#1280)", async () => {
-    const url = await scratchDatabase("k1280_profile");
-    const before = (folder: string) =>
-      shippedMigrations(folder).filter(
-        (migration) => migration.name < "20261104053012_representative_customer_profile",
-      );
-    const core = before("../botsdk/bot/src");
-    const feature = before("../botsdk/representative/src/server");
-    await rows(url, "create schema botsdk; create extension if not exists pg_trgm");
-    for (const migration of [...core, ...feature]) await rows(url, migration.sql);
-    await rows(
-      url,
-      `create table botsdk.__migrations (
-         feature text not null, migration text not null,
-         applied_at timestamp with time zone not null default clock_timestamp(),
-         primary key (feature, migration));
-       insert into botsdk.__migrations (feature, migration) values
-         ${[
-           ...core.map((migration) => `('core', '${migration.name}')`),
-           ...feature.map((migration) => `('representative', '${migration.name}')`),
-         ].join(", ")};
-       insert into botsdk.representative_customer (id, user_id, name, created_at) values
-         ('01966b00-0000-7000-8000-000000000001', 'u1', 'Ada', '2026-03-04 05:06:07'),
-         ('01966b00-0000-7000-8000-000000000002', 'u1', null, '2026-03-04 05:06:07')`,
+  it("drops the removed Representative feature's tables, trigger, held accounts and journal rows, and the Pages (#1167)", async () => {
+    const url = await scratchDatabase("k1167_drop_representative");
+    const core = shippedMigrations("../botsdk/bot/src").filter(
+      (migration) => migration.name < "20261118094916_drop_representative",
     );
-
-    await chatFor(url, [representative()]).migrate();
-
-    expect(
-      await rows(
-        url,
-        "select user_id, customer_id, fixed_field, field_id, value, source, status, recorded_at from botsdk.representative_profile_value",
-      ),
-    ).toEqual([
-      {
-        user_id: "u1",
-        customer_id: "01966b00-0000-7000-8000-000000000001",
-        fixed_field: "name",
-        field_id: null,
-        value: "Ada",
-        source: "owner",
-        status: "confirmed",
-        recorded_at: new Date(2026, 2, 4, 5, 6, 7),
-      },
-    ]);
-    expect(
-      await rows(
-        url,
-        "select column_name from information_schema.columns where table_schema = 'botsdk' and table_name = 'representative_customer' and column_name = 'name'",
-      ),
-    ).toEqual([]);
-  });
-
-  it("leaves a Bot's Channel account as it was and decryptable, and refuses one with no holder (#1331)", async () => {
-    const url = await scratchDatabase("k1331_account");
-    const before = (folder: string) =>
-      shippedMigrations(folder).filter(
-        (migration) => migration.name < "20261105120135_channel_account_optional_bot",
-      );
-    const core = before("../botsdk/bot/src");
-    const feature = before("../botsdk/representative/src/server");
     await rows(url, "create schema botsdk; create extension if not exists pg_trgm");
-    for (const migration of [...core, ...feature]) await rows(url, migration.sql);
+    for (const migration of core) await rows(url, migration.sql);
     const botId = "01966b00-0000-7000-8000-000000000001";
     const accountId = "01966b00-0000-7000-8000-000000000002";
     const encrypted = encryptCredentials(
       { token: "1:a" },
       { secrets: keyEncryptionSecrets, kind: "channel", context: `${botId}:fake` },
     );
+    // The feature's tables, its holder check on the Channel accounts, and an account it held, as
+    // its migrations left them (a few of its 28 tables are enough).
     await rows(
       url,
       `create table botsdk.__migrations (
@@ -461,24 +406,57 @@ describe("chat.migrate()", () => {
          applied_at timestamp with time zone not null default clock_timestamp(),
          primary key (feature, migration));
        insert into botsdk.__migrations (feature, migration) values
-         ${[
-           ...core.map((migration) => `('core', '${migration.name}')`),
-           ...feature.map((migration) => `('representative', '${migration.name}')`),
-         ].join(", ")};
+         ${core.map((migration) => `('core', '${migration.name}')`).join(", ")},
+         ('representative', '20261102190519_representative_baseline');
+       create table botsdk.representative (id uuid primary key);
+       create table botsdk.representative_customer (id uuid primary key);
+       create table botsdk.representative_thread (
+         id uuid primary key,
+         representative_id uuid references botsdk.representative(id) on delete cascade,
+         customer_id uuid references botsdk.representative_customer(id) on delete cascade);
+       create table botsdk.representative_channel_account (
+         channel_account_id uuid primary key references botsdk.channel_account(id) on delete cascade,
+         representative_id uuid references botsdk.representative(id) on delete cascade);
+       create function botsdk.check_channel_account_holder(account uuid) returns void
+         language plpgsql as $$ begin return; end; $$;
+       create function botsdk.channel_account_holder_of_account() returns trigger
+         language plpgsql as $$ begin perform botsdk.check_channel_account_holder(NEW.id); return null; end; $$;
+       create function botsdk.channel_account_holder_of_link() returns trigger
+         language plpgsql as $$ begin return null; end; $$;
+       create constraint trigger channel_account_one_holder after insert or update of bot_id on botsdk.channel_account
+         deferrable initially deferred for each row execute function botsdk.channel_account_holder_of_account();
+       create constraint trigger representative_channel_account_one_holder after insert or update or delete on botsdk.representative_channel_account
+         deferrable initially deferred for each row execute function botsdk.channel_account_holder_of_link();
        insert into botsdk.conversation (id, user_id, kind, created_at, updated_at) values
          ('01966b00-0000-7000-8000-000000000003', 'u1', 'bot', '2026-03-04 05:06:07', '2026-03-04 05:06:07');
        insert into botsdk.bot (id, user_id, conversation_id, name, model, created_at) values
          ('${botId}', 'u1', '01966b00-0000-7000-8000-000000000003', 'Ada', 'openai:gpt-6-luna', '2026-03-04 05:06:07');
        insert into botsdk.channel_account (id, bot_id, platform, platform_bot_id, handle, encrypted, status, created_at, updated_at) values
-         ('${accountId}', '${botId}', 'fake', '1', '@bot_1', '${encrypted}', 'active', '2026-03-04 05:06:07', '2026-03-04 05:06:07')`,
+         ('${accountId}', '${botId}', 'fake', '1', '@bot_1', '${encrypted}', 'active', '2026-03-04 05:06:07', '2026-03-04 05:06:07'),
+         ('01966b00-0000-7000-8000-000000000004', null, 'fake', '2', '@bot_2', 'x', 'active', '2026-03-04 05:06:07', '2026-03-04 05:06:07');
+       insert into botsdk.representative (id) values ('01966b00-0000-7000-8000-000000000005');
+       insert into botsdk.representative_channel_account (channel_account_id, representative_id) values
+         ('01966b00-0000-7000-8000-000000000004', '01966b00-0000-7000-8000-000000000005')`,
     );
-    const account = () => rows(url, "select * from botsdk.channel_account");
-    const stored = await account();
 
-    const chat = chatFor(url, [representative()]);
-    await chat.migrate();
+    await chatFor(url).migrate();
 
-    expect(await account()).toEqual(stored);
+    expect(await tablesOf(url)).toEqual([...coreTables].sort());
+    expect(
+      await rows(
+        url,
+        "select proname from pg_proc join pg_namespace on pg_namespace.oid = pronamespace where nspname = 'botsdk'",
+      ),
+    ).toEqual([]);
+    expect(await rows(url, "select tgname from pg_trigger where not tgisinternal")).toEqual([]);
+    expect(
+      await rows(url, "select feature from botsdk.__migrations where feature <> 'core'"),
+    ).toEqual([]);
+    expect(await rows(url, "select typname from pg_type where typname = 'page_urgency'")).toEqual(
+      [],
+    );
+    // The Bot's account stays, still decryptable; the one the feature held is gone.
+    expect(await rows(url, "select id from botsdk.channel_account")).toEqual([{ id: accountId }]);
     const pool = new Pool({ connectionString: url });
     try {
       const found = await listenerAccount(
@@ -489,13 +467,14 @@ describe("chat.migrate()", () => {
     } finally {
       await pool.end();
     }
+    // Every account has its Bot again.
     await expect(
       rows(
         url,
         `insert into botsdk.channel_account (id, platform, platform_bot_id, handle, encrypted, status, created_at, updated_at) values
-           ('01966b00-0000-7000-8000-000000000004', 'fake', '2', '@bot_2', 'x', 'active', '2026-03-04 05:06:07', '2026-03-04 05:06:07')`,
+           ('01966b00-0000-7000-8000-000000000006', 'fake', '3', '@bot_3', 'x', 'active', '2026-03-04 05:06:07', '2026-03-04 05:06:07')`,
       ),
-    ).rejects.toMatchObject({ constraint: "channel_account_one_holder" });
+    ).rejects.toMatchObject({ code: "23502", column: "bot_id" });
   });
 
   it("leaves a new database without the vector extension", async () => {
@@ -554,6 +533,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261104135900_pages" },
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
+      { feature: "core", migration: "20261118094916_drop_representative" },
       { feature: "notes", migration: "0001_note" },
       { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
@@ -596,6 +576,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261104135900_pages" },
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
+      { feature: "core", migration: "20261118094916_drop_representative" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -742,6 +723,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261104135900_pages" },
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
+      { feature: "core", migration: "20261118094916_drop_representative" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });
@@ -813,11 +795,11 @@ describe("chat.start()", () => {
   });
 
   it("lists each SDK feature with tables under the id and migrations the feature has", () => {
-    expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory(), mcp(), representative()]));
+    expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory(), mcp()]));
   });
 
   it("has each SDK feature declare every table its migrations make, so removing it drops them all", () => {
-    for (const { id, schema } of [memory(), mcp(), representative()]) {
+    for (const { id, schema } of [memory(), mcp()]) {
       const sql = (schema?.migrations ?? []).map((migration) => migration.sql).join("\n");
       const made = [...sql.matchAll(/CREATE TABLE "botsdk"\."(\w+)"/g)].map((match) => match[1]);
       const declared = Object.values(schema?.tables ?? {}).map((table) => getTableName(table));

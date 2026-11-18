@@ -46,8 +46,8 @@ export class MessagingFileTooLargeError extends Error {
 export type MessagingAccount<Field extends string = string> = {
   /** The Channel account's id. */
   id: string;
-  /** The Bot that holds it; null when a feature holds it (ticket #1331). */
-  botId: string | null;
+  /** The Bot it belongs to. */
+  botId: string;
   /** The platform's id of the platform bot. */
   platformBotId: string;
   /** The platform bot's display handle, such as `@ada_bot`. */
@@ -139,25 +139,6 @@ export type MessagingWebhookRequest = { headers: Headers; body: string };
 export type MessagingCall = { fetch: typeof fetch; signal?: AbortSignal };
 
 /**
- * What a platform lets a business do, as optional data on its adapter (spec #1171). The Outbound gate
- * holds a Customer message that breaks one. An adapter that declares none has no limits, and keeps
- * splitting a long message itself.
- */
-export type MessagingReach = {
-  /** False when the platform lets only the other side start a chat. Left out, it can. */
-  canStartConversation?: boolean;
-  /** How long after the Customer's last message the platform lets the business reply. Left out, forever. */
-  replyWindowHours?: number;
-  /** The most characters of one message the Outbound gate lets through. Left out, any length. */
-  maxLength?: number;
-  /**
-   * True when the adapter cuts a longer message to `maxLength` itself, saying so. The gate then lets it
-   * through, as a cut message is still the reply; left out, a longer one is held.
-   */
-  cutsLongMessages?: boolean;
-};
-
-/**
  * A messaging adapter (spec #1044): the wire format of one messaging platform, such as Telegram,
  * as the `channels` slot takes it. It receives updates for one Channel account, sends one Message,
  * edits a sent Message's buttons, downloads one inbound file and checks credentials. The core keeps
@@ -165,22 +146,17 @@ export type MessagingReach = {
  * for the credentials throws `CredentialsRejectedError`; any other throw is retried, and a `send`
  * that fails after sending some parts throws `MessagingSendError` so the retry resumes after them.
  */
-export type MessagingAdapter<Field extends string = string> = MessagingReach & {
+export type MessagingAdapter<Field extends string = string> = {
   kind: "messaging";
   /** The platform, such as `telegram`: a Trigger and a Message from it record it as their Channel. */
   id: string;
   /**
-   * True when the platform authenticates each sender, so `sender.id` can't be spoofed. A Customer on
-   * an account a feature holds is taken as verified only then. Left out, senders can be spoofed.
+   * True when the platform authenticates each sender, so `sender.id` can't be spoofed. Only such a
+   * platform's accounts wake a Bot. Left out, senders can be spoofed.
    */
   verifiesSender?: boolean;
   /** The credentials a Channel account takes, by field name, such as `["token"]`. */
   credentialFields: readonly Field[];
-  /**
-   * The fields of `credentialFields` that aren't secret, such as a phone number, which a form shows
-   * as typed. Left out, every field is secret. They are stored encrypted all the same.
-   */
-  plainCredentialFields?: readonly Field[];
   /** The platform's file limits, in bytes: what `download` can fetch, and what `send` can send. */
   limits: { download: number; upload: number };
   /**

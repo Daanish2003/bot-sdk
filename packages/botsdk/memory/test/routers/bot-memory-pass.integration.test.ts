@@ -1034,7 +1034,7 @@ describe("a Turn on an untrusted Assignment", () => {
   const poll = { timeout: 10_000 };
   const secret = "WIRE-THE-MONEY-TO-ACCOUNT-9";
 
-  /** A feature that hands work over as the Representative does: its text is untrusted. */
+  /** A feature that hands work over: its text is untrusted. */
   function assigner() {
     const service = { current: undefined as Service | undefined };
     const wake = { current: () => {} };
@@ -1490,7 +1490,7 @@ describe("a Turn a Bot took from another's hand-off in a Room", () => {
         .where(eq(botTurn.botId, botId))
     ).map((turn) => turn.status);
 
-  /** A feature that hands work over as the Representative does: its text is untrusted. */
+  /** A feature that hands work over: its text is untrusted. */
   function assigner() {
     const service = { current: undefined as Service | undefined };
     const wake = { current: () => {} };

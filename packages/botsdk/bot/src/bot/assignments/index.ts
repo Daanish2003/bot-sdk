@@ -20,9 +20,4 @@ export {
   type AssignmentsService,
   assignmentsService,
 } from "./assignments-service";
-export {
-  assignmentRedactionJob,
-  queueRedactionAfterHelper,
-  queueRedactionAfterTurn,
-} from "./redact";
 export { helperBudget, type LoopBudget, raiseAssignmentLimit, turnBudget } from "./budget";

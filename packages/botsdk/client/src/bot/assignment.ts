@@ -14,8 +14,6 @@ export const isEndedAssignment = (status: AssignmentStatus) =>
 /** What an Assignment's Bot finished it with. */
 export type AssignmentResult = {
   outcome: string;
-  /** Text that may be shown to a Customer. */
-  forCustomer?: string;
   /** An ISO 8601 time the result names, such as when something will happen. */
   when?: string;
 };

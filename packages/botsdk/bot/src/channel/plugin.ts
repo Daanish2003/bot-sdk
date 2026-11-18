@@ -1,11 +1,10 @@
 import type { ChannelAccountRow } from "@botsdk/client/bot/channel-account";
 import type { LinkCode, LinkedIdentityRow } from "@botsdk/client/bot/linked-identity";
-import type { PageUrgency } from "@botsdk/client/bot/pages";
 import { z } from "zod";
 
 import type { BotSdkPlugin, Transaction } from "../plugin";
-import type { EmailChannel, InboundMail, OutboundMail } from "./email";
-import type { MessagingAdapter, MessagingReach, SendProgress } from "./messaging";
+import type { EmailChannel, InboundMail } from "./email";
+import type { MessagingAdapter } from "./messaging";
 import type { WebPushChannel } from "./push";
 
 /**
@@ -25,15 +24,6 @@ export const deliveryPayload = z.union([
 ]);
 
 export type DeliveryPayload = z.infer<typeof deliveryPayload>;
-
-/** What a `page.deliver` job carries (ticket #1300): one Page and one Channel to send it on. */
-export const pageDeliveryPayload = z.discriminatedUnion("via", [
-  z.object({ via: z.literal("push"), pageId: z.uuid() }),
-  z.object({ via: z.literal("messaging"), pageId: z.uuid(), platform: z.string() }),
-  z.object({ via: z.literal("email"), pageId: z.uuid() }),
-]);
-
-export type PageDelivery = z.infer<typeof pageDeliveryPayload>;
 
 /**
  * A Channel adapter (spec #761): its wire format only. Email (spec #761), web push (spec #1024) and
@@ -62,17 +52,6 @@ export type ChannelAccountsApi = {
   ) => Promise<ChannelAccountRow>;
   /** Removes the Bot's Channel account on `platform` and stops its listener. */
   remove: (input: AccountInput) => Promise<void>;
-};
-
-/** What a feature saves an account it holds with. */
-export type HeldAccountInput = {
-  userId: string;
-  platform: string;
-  credentials: Record<string, string>;
-  /** Locks the feature's holder, first in the save's transaction: before any account's row. */
-  lock: (tx: Transaction) => Promise<void>;
-  /** Records the feature's holder of account `id`, in the save's transaction. */
-  hold: (tx: Transaction, id: string) => Promise<void>;
 };
 
 /**
@@ -125,56 +104,10 @@ export type ChannelApi = {
    * on a messaging Channel; the runner retries it when it throws.
    */
   sendDelivery: (payload: DeliveryPayload) => Promise<void>;
-  /**
-   * Queues a Page's sends in the caller's transaction (ticket #1300): web push and each of the
-   * user's Linked identities at once, email after 10 minutes. A routine Page outside the owner's hours
-   * waits for them to end (ticket #1301). A Channel the Host lacks has none.
-   */
-  pageIn: (
-    tx: Transaction,
-    page: { id: string; userId: string; urgency: PageUrgency },
-  ) => Promise<void>;
-  /** Sends one `page.deliver` job's Page on its Channel; the runner retries it when it throws. */
-  sendPage: (payload: PageDelivery) => Promise<void>;
   /** The web push Channel's VAPID public key, or `null` when the Host gave no web push adapter. */
   pushKey: () => string | null;
   /** The Channel accounts on the messaging Channels (spec #1044). */
   accounts: ChannelAccountsApi;
-  /**
-   * Adds or fixes a Channel account a feature holds, and starts its listener (ticket #1331); a feature
-   * reaches it through its `channelAccounts` service.
-   */
-  saveHeldAccount: (input: HeldAccountInput) => Promise<ChannelAccountRow>;
-  /** Sends `message` through account `id`, which a feature holds. See `ChannelAccountsService`. */
-  sendHeld: (
-    id: string,
-    message: { chatId: string; text: string; resume?: SendProgress },
-  ) => Promise<void>;
-  /**
-   * The decrypted credentials of account `id`, which a feature holds on `platform`. Null when there is no such
-   * account, no key of the keyring reads it, or a Bot holds it. The caller checks the account is its own.
-   */
-  heldCredentials: (id: string, platform: string) => Promise<Record<string, string> | null>;
-  /**
-   * Sends one mail through the email adapter (spec #1176), for a feature's address; throws with no
-   * email adapter, and a provider's throw is for the runner to retry.
-   */
-  sendEmail: (mail: OutboundMail) => Promise<void>;
-  /**
-   * What the adapter of `platform` limits, or undefined when the Host has none: email can start a
-   * conversation and has no reply window.
-   */
-  reach: (platform: string) => MessagingReach | undefined;
-  /**
-   * Each messaging platform the Host offers, in its order, with the credential fields an account on
-   * it takes and those of them that aren't secret.
-   */
-  platforms: () => { platform: string; fields: string[]; plainFields: string[] }[];
-  /**
-   * Where `platform`'s platform posts account `accountId`'s updates: `<appUrl><basePath>/channels/<platform>/<accountId>`.
-   * Null for a platform that listens instead, or while the instance has no app URL or base path.
-   */
-  webhookUrl: (platform: string, accountId: string) => string | null;
   /** The user's Linked identities on the messaging Channels (spec #1044). */
   identities: LinkedIdentitiesApi;
 };

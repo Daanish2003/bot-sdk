@@ -14,7 +14,7 @@ import {
   type MessagingUpdate,
 } from "../../channel/internal";
 import { bot, botTrigger, linkedIdentity } from "../../storage";
-import { featureHolding, linkFromCode, storeMailFiles } from "../conversation";
+import { linkFromCode, storeMailFiles } from "../conversation";
 import { handIn } from "./hand-in";
 import { answerFromMessaging } from "./messaging-controls";
 
@@ -47,15 +47,12 @@ function recentOf(sdk: BotSdkContext, accountId: string): Map<string, Promise<vo
  * The core's one entry point for a messaging update (spec #1044): a Channel account's listener, or
  * a later platform's webhook route, hands it each normalised update of that account. It resolves
  * once the update is stored or dropped, and only then does the listener confirm it to the
- * platform. On an account a feature holds, everyone is a stranger and the feature's `onStranger`
- * takes it (ticket #1334). On a Bot's, a sender who sends a valid link code is linked (#1046) and told
- * so by a system notice, a message from the Bot's user's Linked identity, in a private chat, wakes
- * the Bot (#1047), and any other update is dropped silently. A resent update (its `sourceId` seen
- * lately) acts no more.
- * `appUrl` is the Host's app, for the links its notices carry. A feature's `onStranger` that throws
- * is logged and its update dropped, except `via` a webhook route (#1363), whose answer says whether
- * the update is stored: there it rejects like any other that couldn't be stored, and a copy of an
- * update still being taken waits for how that ends, so the platform sends it again if it failed.
+ * platform. A sender who sends a valid link code is linked (#1046) and told so by a system notice.
+ * A message from the Bot's user's Linked identity, in a private chat, wakes the Bot (#1047); any
+ * other update is dropped silently. A resent update (its `sourceId` seen lately) acts no more.
+ * `appUrl` is the Host's app, for the links its notices carry. `via` a webhook route (#1363), whose
+ * answer says whether the update is stored, a copy of an update still being taken waits for how that
+ * ends, so the platform sends it again if it failed.
  */
 export async function receiveMessaging(
   sdk: BotSdkContext,
@@ -75,7 +72,7 @@ export async function receiveMessaging(
   }
   // Remembered as it is taken, so a copy delivered meanwhile is dropped; forgotten when it throws,
   // as it is read again and must act then.
-  const taking = receiveOnce(sdk, adapter, account, withoutNul(update), appUrl, onRejected, via);
+  const taking = receiveOnce(sdk, adapter, account, withoutNul(update), appUrl, onRejected);
   recent.set(update.sourceId, taking);
   if (recent.size > recentLimit) recent.delete(recent.keys().next().value!);
   try {
@@ -93,33 +90,10 @@ async function receiveOnce(
   update: MessagingUpdate,
   appUrl: string | null,
   onRejected: (reason: string) => Promise<void>,
-  via: "listener" | "webhook",
 ): Promise<void> {
   // Called on the logger, so a class-based one keeps its `this`. Never the text.
   const drop = (reason: string) =>
     sdk.logger.debug?.(`A ${account.platform} update was dropped: ${reason}`);
-  if (account.botId === null) {
-    // Rooms are out of scope (spec #1044).
-    if (!update.chat.private) return drop("it is not from a private chat");
-    const holder = await featureHolding(sdk, account.id);
-    if (!holder?.feature.onStranger) return drop("no enabled feature takes its strangers");
-    try {
-      await holder.feature.onStranger(
-        {
-          channel: account.platform,
-          account: { id: account.id, handle: account.handle },
-          sender: { ...update.sender, verified: adapter.verifiesSender === true },
-          text: update.text,
-          files: update.files,
-        },
-        holder.context,
-      );
-    } catch (error) {
-      if (via === "webhook") throw error;
-      sdk.logger.error(`A ${account.platform} update on a held account was dropped`, error);
-    }
-    return;
-  }
   // A spoofable sender could speak as the user, so such an account never wakes a Bot. Saving one on a
   // Bot is refused; this keeps one saved before the platform stopped verifying senders silent.
   if (adapter.verifiesSender !== true) return drop("its platform can't verify the sender");

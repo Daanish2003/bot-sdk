@@ -113,9 +113,10 @@ const passMayRead = ({ source, channel }: { source: string; channel: string }) =
   channel !== untrustedAssignmentChannel && !followOnSources.includes(source);
 
 /**
- * What the pass may read of Turn `turnId`: Customer details must never reach a Bot's memory files,
- * where they can't be found or deleted (spec #1170). The rule keys on the untrusted Assignment
- * channel, so it covers any feature's Assignments and the children a Bot split off from them.
+ * What the pass may read of Turn `turnId`: untrusted work's details must never reach a Bot's
+ * memory files, where they can't be found or deleted (spec #1170). The rule keys on the untrusted
+ * Assignment channel, so it covers any feature's Assignments and the children a Bot split off from
+ * them.
  * - `skip`: the Turn took only untrusted Assignment Triggers and the Bot's own work, or follows on from the Bot's own
  *   work (a Check-in, a Helper's report, an answered Approval, a hand-off) while it holds an
  *   untrusted Assignment that was not ended before the Turn started, or took a hand-off from a Turn

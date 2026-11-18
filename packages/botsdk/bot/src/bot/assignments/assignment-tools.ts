@@ -7,7 +7,6 @@ import { hintChanged } from "../conversation";
 import {
   addAssignmentNote,
   addAssignmentNoteToolName,
-  assignmentForCustomerInput,
   assignmentInstructionsInput,
   assignmentOutcomeInput,
   assignmentTitleInput,
@@ -67,11 +66,6 @@ const finishAssignmentDefinition = toolDefinition({
     outcome: assignmentOutcomeInput.meta({
       description:
         "What came of it for whoever assigned it, or why it failed. A Secret's value in it is masked.",
-    }),
-    for_customer: assignmentForCustomerInput.optional().meta({
-      description:
-        "Optional text about the result that may be shown to a Customer. Write it for them, and " +
-        "leave out anything private.",
     }),
     when: z.iso
       .datetime({ offset: true, message: "when must be an ISO 8601 time with an offset" })
@@ -145,7 +139,7 @@ export function assignmentTools(
   );
 
   const finish = finishAssignmentDefinition.server(
-    async ({ id, status, outcome, for_customer, when }, context) => {
+    async ({ id, status, outcome, when }, context) => {
       // Set only by a live write, afresh on each try of it.
       let woken: string[] = [];
       const answer = await liveActivity(
@@ -158,7 +152,6 @@ export function assignmentTools(
             status,
             result: {
               outcome,
-              ...(for_customer && { forCustomer: for_customer }),
               ...(when && { when }),
             },
           });

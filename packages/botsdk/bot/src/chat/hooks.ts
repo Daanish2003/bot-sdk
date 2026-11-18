@@ -36,9 +36,7 @@ export type UsageEvent = {
     | "summary"
     | "warm"
     | "review"
-    | "skill_draft"
-    | "representative"
-    | "customer_memory";
+    | "skill_draft";
   /** The `"provider:model"` id, `"tavily"` for a web search, or the image model's id. */
   model: string;
   /** Every input token, cache reads and writes included. */
@@ -48,10 +46,7 @@ export type UsageEvent = {
   cacheReadTokens: number;
   /** The input tokens written to the Provider's prompt cache. */
   cacheWriteTokens: number;
-  /**
-   * The Bot Turn, Helper or Representative Turn (or, for warming, the Bot) a Model call was made
-   * for, else `null`.
-   */
+  /** The Bot Turn or Helper (or, for warming, the Bot) a Model call was made for, else `null`. */
   sourceId: string | null;
   /** The hash of each section of the prompt a Model call sent, else `null`. */
   promptHashes: PromptHash[] | null;

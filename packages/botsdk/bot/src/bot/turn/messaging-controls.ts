@@ -1,5 +1,5 @@
 import { type ChoiceControl, maxChoiceOtherLength } from "@botsdk/client/bot/choice";
-import { isChannelAnswerable, type RichControl } from "@botsdk/client/bot/rich-control";
+import type { RichControl } from "@botsdk/client/bot/rich-control";
 import { ORPCError } from "@orpc/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
@@ -20,7 +20,7 @@ import { approveRule, decideReview, denyRule } from "../safety";
 import { answerChoice } from "../triggers";
 
 type Account = MessagingAccount & { platform: string };
-type Owner = { botId: string; userId: string; conversationId: string };
+type Owner = { userId: string; conversationId: string };
 
 type Run = {
   sdk: BotSdkContext;
@@ -212,7 +212,7 @@ function pick(choice: ChoiceControl, text: string): string | undefined {
 
 const choose = (run: Run, messageId: string, answer: { option: string } | { other: string }) =>
   answerChoice(run.sdk, run.owner.userId, {
-    botId: run.owner.botId,
+    botId: run.account.botId,
     messageId,
     answer,
     channel: run.account.platform,
@@ -255,28 +255,12 @@ async function openControls({ sdk, owner }: Run) {
   type Open<Control> = { id: string; control: Control; parts: (typeof rows)[number]["parts"] };
   let choice: Open<ChoiceControl> | undefined;
   let approval: Open<ApprovalControl> | undefined;
-  // A yes or no after a waiting release or fact Approval is about that card, which is answered only
-  // on its page: it never reaches back to an older Approval.
-  let approvalsOver = false;
   for (const row of rows) {
     const control = controlOf(row.parts);
     if (!control) continue;
-    if (
-      (control.kind === "release_approval" || control.kind === "fact_approval") &&
-      !approval &&
-      !control.answer &&
-      new Date(control.expiresAt) > sdk.clock()
-    ) {
-      approvalsOver = true;
-    }
     if (control.kind === "choice") {
       if (!choice && !control.answer) choice = { id: row.id, control, parts: row.parts };
-    } else if (
-      !approval &&
-      !approvalsOver &&
-      isApprovalControl(control) &&
-      (await pending(sdk, control))
-    ) {
+    } else if (!approval && isApprovalControl(control) && (await pending(sdk, control))) {
       approval = { id: row.id, control, parts: row.parts };
     }
   }
@@ -284,7 +268,9 @@ async function openControls({ sdk, owner }: Run) {
 }
 
 const isApprovalControl = (control: RichControl): control is ApprovalControl =>
-  isChannelAnswerable(control.kind);
+  control.kind === "routine_approval" ||
+  control.kind === "review_approval" ||
+  control.kind === "rule_approval";
 
 /** Whether the Approval still waits for the user. */
 async function pending(sdk: BotSdkContext, control: ApprovalControl): Promise<boolean> {
@@ -344,7 +330,7 @@ async function decide(
   if (shownIn) await edit(run, shownIn, outcome);
   if (webhook) {
     const lead = "Get its webhook URL in the app";
-    const page = run.appUrl && `${run.appUrl}/bots/${run.owner.botId}`;
+    const page = run.appUrl && `${run.appUrl}/bots/${run.account.botId}`;
     try {
       await notice(run, `Approved. ${page ? `[${lead}](${page})` : `${lead}.`}`);
     } catch (error) {

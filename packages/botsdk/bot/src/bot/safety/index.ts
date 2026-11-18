@@ -11,7 +11,6 @@ export {
   closeWaitingReviews,
   decideReview,
   declineBotApprovals,
-  denyForDeletedCustomer,
   reopenUnstartedCalls,
   judge,
   listedReviews,
@@ -47,16 +46,10 @@ export {
   reviewedRules,
   updateRule,
 } from "./custom-rule";
-export { type FactApprovalsService, factApprovalsService } from "./fact-approvals-service";
-export {
-  deliverAnswersAfterPause,
-  type ReleaseApprovalsService,
-  releaseApprovalsService,
-} from "./release-approvals-service";
+export { deliverAnswersAfterPause } from "./answers-after-pause";
 export { deleteSecret, listSecrets, rotateSecretKeys, saveSecret } from "./secret";
 export {
   type DecryptedSecrets,
-  escaped,
   loadSecretValues,
   maskedFormsOf,
   maskResult,

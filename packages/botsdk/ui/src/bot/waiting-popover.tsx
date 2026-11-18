@@ -1,13 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useQuery } from "@tanstack/react-query";
 import { ShieldAlertIcon } from "lucide-react";
 
 import { useBotReviews } from "@botsdk/react/bot/reviews";
 import { useCustomRules } from "@botsdk/react/bot/rules";
 import { useChatAdapter, useI18n } from "@botsdk/react/provider";
-import { FactApprovalCard } from "./fact-approval-card";
-import { ReleaseApprovalCard } from "./release-approval-card";
 import { ReviewRequest } from "./review-request";
 import { RuleCard } from "./rule-card";
 
@@ -19,23 +16,14 @@ import { RuleCard } from "./rule-card";
  */
 export function WaitingPopover({ botId }: { botId: string }) {
   const { t } = useI18n();
-  const { Link, orpc } = useChatAdapter();
+  const { Link } = useChatAdapter();
   const { reviews, acting, allow, deny } = useBotReviews(botId, false);
   const pending = reviews.filter((review) => review.state === "pending");
   const rules = useCustomRules();
   const proposed = rules.rules.filter(
     (rule) => rule.state === "proposed" && rule.proposedByBotId === botId,
   );
-  // A release or fact Approval is only a card in the thread, so the thread's own read says which wait.
-  const thread = useQuery(orpc.bots.get.queryOptions({ input: { botId } }));
-  const linkCards = (thread.data?.messages ?? []).flatMap(({ id, control, text }) =>
-    (control?.kind === "release_approval" || control?.kind === "fact_approval") &&
-    !control.answer &&
-    new Date(control.expiresAt) > new Date()
-      ? [{ id, card: control, text }]
-      : [],
-  );
-  const count = pending.length + proposed.length + linkCards.length;
+  const count = pending.length + proposed.length;
   return (
     <Popover>
       <PopoverTrigger
@@ -69,15 +57,6 @@ export function WaitingPopover({ botId }: { botId: string }) {
                   onDeny={rules.deny}
                   acting={rules.acting.has(rule.id)}
                 />
-              </li>
-            ))}
-            {linkCards.map(({ id, card, text }) => (
-              <li key={id} className="flex flex-col">
-                {card.kind === "fact_approval" ? (
-                  <FactApprovalCard card={card} text={text} />
-                ) : (
-                  <ReleaseApprovalCard card={card} text={text} />
-                )}
               </li>
             ))}
           </ul>
