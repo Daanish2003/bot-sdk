@@ -34,11 +34,13 @@ describe("ConnectedAccountsSection", () => {
     section(["github", "github-connection", "gmail", "google-calendar", "chatgpt"]);
 
     expect((await unlinkGithub()).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/This is your only way to sign in/)).toBeTruthy();
   });
 
   it("offers to unlink GitHub while another sign-in method is left", async () => {
     section(["github", "credential"]);
 
     expect((await unlinkGithub()).hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByText(/This is your only way to sign in/)).toBeNull();
   });
 });

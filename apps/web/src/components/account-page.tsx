@@ -741,7 +741,7 @@ export function ConnectedAccountsSection() {
           );
         })}
       </ul>
-      {rows.length === 1 ? (
+      {signInRows.length === 1 ? (
         <p className="text-sm text-muted-foreground">{lastSignInMessage}</p>
       ) : null}
     </section>
