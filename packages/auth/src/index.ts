@@ -187,7 +187,8 @@ export function createAuth(
       );
   }
 
-  // Both link-only providers share one `genericOAuth` plugin: a second one would repeat its id.
+  // The link-only providers (ChatGPT and the Connections) share one `genericOAuth` plugin: a
+  // second one would repeat its id.
   const linkOnly = [
     ...(env.CHATGPT_CLIENT_ID && env.CHATGPT_HOST_ID
       ? [
