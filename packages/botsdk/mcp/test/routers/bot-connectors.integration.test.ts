@@ -8,37 +8,35 @@ import { botReview, botSecret, botTurn } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { secretEncryption } from "@botsdk/bot/bot/safety";
 import { mcp } from "../../src";
-import type { McpServerConfig } from "../../src";
+import type { ConnectionAnswer, McpConnection } from "../../src";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
-import { createFakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
-import { createFakeMcpServer, type FakeMcpTool } from "@ai-chat/test-support/fake-mcp-server";
+import {
+  createFakeMcpServer,
+  fakeMcpResource,
+  type FakeMcpTool,
+} from "@ai-chat/test-support/fake-mcp-server";
 import { fakeReviewer, type FakeReviewer, verdictRound } from "@botsdk/testing/fake-reviewer";
 import { followSend } from "@ai-chat/test-support/follow-send";
-import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
+import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { insertUser, type TestUser } from "@ai-chat/test-support/users";
+import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 
 vi.setConfig({ testTimeout: 30_000 });
 
 const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
-const basePath = "http://localhost/api/chat";
-const clientId = "ai-chat-test";
-const clientSecret = "test-client-secret";
+const token = "linear-access-token";
 
-const linear: McpServerConfig = {
+const linear: McpConnection = {
   key: "linear",
   name: "Linear",
-  url: fakeMcpResource,
-  oauth: { clientId, clientSecret },
+  mcp: { url: fakeMcpResource },
   approvalFree: ["list_issues"],
 };
-
-const mcpOrigin = new URL(fakeMcpResource).origin;
 
 type Round = ReturnType<typeof round>;
 
@@ -48,23 +46,11 @@ afterEach(async () => {
   for (const jobs of started.splice(0)) await jobs.stop();
 });
 
-/** Signs `user` in to the Linear server through the plugin's OAuth routes (the redirect and callback). */
-async function connect(user: TestUser, deps: TestDeps, auth: ReturnType<typeof createFakeMcpAuth>) {
-  const client = createTestChat({ user, deps });
-  const start = await client.fetch(
-    new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
-      redirect: "manual",
-    }),
-  );
-  await client.fetch(
-    new Request(auth.approve(start.headers.get("location") ?? ""), { redirect: "manual" }),
-  );
-}
-
 /**
  * A user with an OpenAI key, a Linear Connection over the fake MCP server, and a Bot "Ada" with its
- * Computer, whose Turns play `rounds` and whose Auto-review calls go to `reviewer`. With
- * `withMcp: false`, the Host installs no `mcp` plugin.
+ * Computer, whose Turns play `rounds` and whose Auto-review calls go to `reviewer`. The Host's
+ * `connection` hook answers `link.answer` for Linear, a token by default, and the server takes
+ * only `link.accepted`. With `withMcp: false`, the Host installs no `mcp` plugin.
  */
 async function botWith(
   rounds: Round[],
@@ -82,14 +68,11 @@ async function botWith(
   } = {},
 ) {
   const fake = createFakeAdapter({ rounds });
-  const auth = createFakeMcpAuth({ clientId, clientSecret });
-  const server = createFakeMcpServer({ auth, tools });
-  const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    // The MCP endpoint is the MCP server's; its `.well-known` discovery documents are the auth server's.
-    const isEndpoint = url.origin === mcpOrigin && url.pathname === "/mcp";
-    return (isEndpoint ? server.fetch : auth.fetch)(input, init);
-  }) as typeof globalThis.fetch;
+  const link: { answer: ConnectionAnswer; accepted: string } = {
+    answer: { accessToken: token },
+    accepted: token,
+  };
+  const server = createFakeMcpServer({ accepts: (sent) => sent === link.accepted, tools });
   // The real time plus `skewMs`, for the SDK and the runner alike: a test moves it past a deadline.
   let skewMs = 0;
   const clock = () => new Date(Date.now() + skewMs);
@@ -103,8 +86,18 @@ async function botWith(
   });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
-    features: [...(withMcp ? [mcp({ servers: [linear] })] : []), ...after],
-    fetch,
+    features: [
+      ...(withMcp
+        ? [
+            mcp({
+              connections: [linear],
+              connection: (_userId, key) => (key === "linear" ? link.answer : null),
+            }),
+          ]
+        : []),
+      ...after,
+    ],
+    fetch: server.fetch,
     jobs,
     clock,
     adapterFor: () => fake.adapter,
@@ -120,12 +113,12 @@ async function botWith(
     hint: "…-key",
     verified: true,
   });
-  if (withMcp) await connect(user, deps, auth);
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bots.create({ name: "Ada", model });
   return {
     fake,
     server,
+    link,
     reviewer,
     deps,
     client,
@@ -197,7 +190,40 @@ describe("Connector tools in a Bot's Turn", () => {
       "linear_list_issues",
     );
     expect(server.calls).toEqual([{ name: "list_issues", arguments: { team: "core" } }]);
+    // The hook's token, as a Bearer token, on every request: no OAuth discovery or registration.
+    expect(server.authorizations.length).toBeGreaterThan(0);
+    expect(new Set(server.authorizations)).toEqual(new Set([`Bearer ${token}`]));
   });
+
+  it.each([
+    ["the hook answers that it needs reconnecting", { reconnect: true as const }],
+    ["the hook answers that it isn't linked", null],
+    ["the server answers HTTP 401", { accessToken: token }],
+  ] as const)(
+    "answers a call with the reconnect error when %s, and the tool stays listed",
+    async (_case, answer) => {
+      const { server, link, fake, botId, client } = await botWith([
+        round(),
+        runTool("linear_create_issue", { title: "Bug" }),
+        round(),
+      ]);
+
+      await send(client, botId, "turn one");
+      link.answer = answer;
+      // A revoked token: the hook may still answer it, and the server refuses it.
+      link.accepted = "a-newer-token";
+      await send(client, botId, "file a bug");
+
+      expect(await toolResults(botId)).toContain(
+        "Connection Linear needs reconnecting in Settings; tell the user",
+      );
+      expect(server.calls).toEqual([]);
+      const two = fake.calls.find((call) =>
+        String(messagesOf(call).at(-1)?.content).includes("file a bug"),
+      );
+      expect(String(messagesOf(two)[0]?.content)).toContain("linear_create_issue:");
+    },
+  );
 
   it("notes a tool a Connection added, and one it changed after the Bot loaded it", async () => {
     const tools: FakeMcpTool[] = [{ name: "list_issues" }];

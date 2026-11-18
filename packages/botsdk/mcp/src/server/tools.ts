@@ -2,56 +2,29 @@ import type { AnyServerTool } from "@tanstack/ai";
 import { createMCPClient } from "@tanstack/ai-mcp";
 
 import type { BotSdkContext } from "@botsdk/bot/plugin";
-import { isExpired, readTokens, saveTokens } from "./connections";
-import { discoverEndpoints, refreshAccess } from "./oauth";
-import type { McpServerConfig } from "./servers";
+import {
+  accessTokenOf,
+  askConnection,
+  type ConnectionHook,
+  type McpConnection,
+} from "./connections";
 
-type Deps = Pick<BotSdkContext, "db" | "keyring" | "fetch" | "fetchAllowHosts">;
-
-/**
- * The access token to call a server with: the stored one, or a refreshed one when it has expired.
- * `null` when there is none, so the server's tools are not offered. A refresh the server refuses
- * drops the refresh token, which leaves the Connection needing reconnection (`listConnections`).
- */
-async function accessTokenFor(deps: Deps, userId: string, server: McpServerConfig) {
-  const stored = await readTokens(deps, userId, server.key);
-  if (!stored) return null;
-  const { tokens, scope } = stored;
-  if (!isExpired(tokens)) return tokens.accessToken;
-  if (!tokens.refreshToken) return null;
-  try {
-    const { tokenEndpoint } = await discoverEndpoints(server, deps.fetch, deps.fetchAllowHosts);
-    const refreshed = await refreshAccess({
-      fetch: deps.fetch,
-      server,
-      tokenEndpoint,
-      refreshToken: tokens.refreshToken,
-      scope,
-    });
-    await saveTokens(deps, userId, server.key, refreshed);
-    return refreshed.accessToken;
-  } catch {
-    await saveTokens(deps, userId, server.key, {
-      accessToken: tokens.accessToken,
-      tokenType: tokens.tokenType,
-      ...(tokens.expiresAt ? { expiresAt: tokens.expiresAt } : {}),
-      scope,
-    });
-    return null;
-  }
-}
+type Deps = Pick<BotSdkContext, "fetch" | "logger">;
 
 /**
- * The tools of the user's connected servers, one client per Connection, open until `signal`
- * aborts. The servers are opened side by side, so a slow one holds up no other. A server that is
- * down, or whose Connection can't be used, is skipped. Each tool is named `<server key>_<tool>`,
- * filtered by the server's `tools` allowlist, and needs approval unless the server's `approvalFree`
- * lists it. Each tool's `metadata.readOnly` says whether a read-only run may call it: the server
- * marks it `readOnlyHint: true`, or `readOnlyTools` names it.
+ * The tools of the user's connected Connections, one client per Connection, open until `signal`
+ * aborts. Each client sends the token the Host's hook answers as a Bearer token, with no OAuth
+ * discovery or client registration (ADR 0037). The servers are opened side by side, so a slow one
+ * holds up no other. A server that is down or refuses the token (HTTP 401), or a Connection the
+ * hook gives no token for, is skipped. Each tool is named `<key>_<tool>`, filtered by the
+ * Connection's `mcp.tools` allowlist, and needs approval unless its `approvalFree` lists it. Each
+ * tool's `metadata.readOnly` says whether a read-only run may call it: the server marks it
+ * `readOnlyHint: true`, or `readOnlyTools` names it.
  */
 export async function openMcpTools(
   deps: Deps,
-  servers: readonly McpServerConfig[],
+  connections: readonly McpConnection[],
+  hook: ConnectionHook | undefined,
   userId: string,
   signal: AbortSignal,
 ): Promise<AnyServerTool[]> {
@@ -63,21 +36,21 @@ export async function openMcpTools(
   signal.addEventListener("abort", closeAll, { once: true });
 
   const opened = await Promise.all(
-    servers.map(async (server): Promise<AnyServerTool[]> => {
-      const accessToken = await accessTokenFor(deps, userId, server).catch(() => null);
+    connections.map(async (server): Promise<AnyServerTool[]> => {
+      const accessToken = accessTokenOf(await askConnection(deps, hook, userId, server.key));
       if (!accessToken || signal.aborted) return [];
       let client: { close: () => Promise<void>; tools: () => Promise<unknown> } | undefined;
       try {
         client = await createMCPClient({
           transport: {
             type: "http",
-            url: server.url,
+            url: server.mcp.url,
             headers: { authorization: `Bearer ${accessToken}` },
             fetch: deps.fetch,
           },
           name: "ai-chat",
           prefix: server.key,
-          toolFilter: (tool) => !server.tools || server.tools.includes(tool.name),
+          toolFilter: (tool) => !server.mcp.tools || server.mcp.tools.includes(tool.name),
           needsApproval: (tool) => !(server.approvalFree ?? []).includes(tool.name),
         });
         if (signal.aborted) throw signal.reason;

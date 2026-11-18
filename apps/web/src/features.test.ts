@@ -13,7 +13,7 @@ const sdkWith = (computer: ComputerProvider | undefined) =>
     models: {},
     channels: [],
     computer,
-    features: [...computerFeatures(computer !== undefined), mcp({ servers: [] })],
+    features: [...computerFeatures(computer !== undefined), mcp()],
   });
 
 // Spec #871 user story 8: a Host with no Computer still starts, without the features that need one.

@@ -4,37 +4,27 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { botRoutine } from "@botsdk/bot/storage";
 import { mcp } from "../../src";
-import type { McpServerConfig } from "../../src";
+import type { ConnectionAnswer, McpConnection } from "../../src";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { inProcessRunner, type JobRunner, systemClock } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { isTurnCall } from "@ai-chat/test-support/bot-turns";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
-import { createFakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
-import { createFakeMcpServer } from "@ai-chat/test-support/fake-mcp-server";
+import { createFakeMcpServer, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-server";
 import { followSend } from "@ai-chat/test-support/follow-send";
-import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
+import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
-import { insertUser, type TestUser } from "@ai-chat/test-support/users";
+import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 
 vi.setConfig({ testTimeout: 30_000 });
 
 const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
-const basePath = "http://localhost/api/chat";
-const clientId = "ai-chat-test";
-const clientSecret = "test-client-secret";
+const token = "linear-access-token";
 
-const linear: McpServerConfig = {
-  key: "linear",
-  name: "Linear",
-  url: fakeMcpResource,
-  oauth: { clientId, clientSecret },
-};
-
-const mcpOrigin = new URL(fakeMcpResource).origin;
+const linear: McpConnection = { key: "linear", name: "Linear", mcp: { url: fakeMcpResource } };
 
 const started: JobRunner[] = [];
 
@@ -43,9 +33,10 @@ afterEach(async () => {
 });
 
 /**
- * Two Bots of a user who has no Connection yet, on the fake Linear server. With `turnBeforeMcp`, the
- * first Bot has a Turn on a Host without the `mcp` feature first, so its Prompt start lacks the
- * section, and then the Host turns the feature on.
+ * Two Bots of a user who has no Connection yet, on the fake Linear server: the Host's hook answers
+ * `link.answer`, nothing until `connect()`. With `turnBeforeMcp`, the first Bot has a Turn on a
+ * Host without the `mcp` feature first, so its Prompt start lacks the section, and then the Host
+ * turns the feature on.
  */
 async function botsWithoutConnection(
   queue: ReturnType<typeof round>[] = [],
@@ -57,13 +48,12 @@ async function botsWithoutConnection(
       () => (options: TextOptions) => (isTurnCall(options) ? (queue.shift() ?? round()) : round()),
     ),
   });
-  const auth = createFakeMcpAuth({ clientId, clientSecret });
-  const server = createFakeMcpServer({ auth, tools: [{ name: "list_issues" }] });
-  const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    const isEndpoint = url.origin === mcpOrigin && url.pathname === "/mcp";
-    return (isEndpoint ? server.fetch : auth.fetch)(input, init);
-  }) as typeof globalThis.fetch;
+  const server = createFakeMcpServer({
+    accepts: (sent) => sent === token,
+    tools: [{ name: "list_issues" }],
+  });
+  const link: { answer: ConnectionAnswer } = { answer: null };
+  const withMcp = () => mcp({ connections: [linear], connection: () => link.answer });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -76,12 +66,12 @@ async function botsWithoutConnection(
     createTestSdk({
       computer: fakeComputerProvider().provider,
       features,
-      fetch,
+      fetch: server.fetch,
       jobs,
       adapterFor: () => fake.adapter,
       memory: false,
     });
-  deps = host(turnBeforeMcp ? [] : [mcp({ servers: [linear] })]);
+  deps = host(turnBeforeMcp ? [] : [withMcp()]);
   await jobs.start();
   started.push(jobs);
   const user = await insertUser();
@@ -96,23 +86,14 @@ async function botsWithoutConnection(
   const { id: second } = await client.bots.create({ name: "Bea", model });
   if (turnBeforeMcp) {
     await send(client, first, "before mcp");
-    deps = host([mcp({ servers: [linear] })]);
+    deps = host([withMcp()]);
     client = chatRpc({ user, deps });
   }
-  return { fake, auth, deps, user, client, first, second };
-}
-
-/** Signs `user` in to the Linear server through the plugin's OAuth routes. */
-async function connect(user: TestUser, deps: TestDeps, auth: ReturnType<typeof createFakeMcpAuth>) {
-  const chat = createTestChat({ user, deps });
-  const start = await chat.fetch(
-    new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
-      redirect: "manual",
-    }),
-  );
-  await chat.fetch(
-    new Request(auth.approve(start.headers.get("location") ?? ""), { redirect: "manual" }),
-  );
+  /** The Host's hook answers a token from now on, as once the user connected Linear. */
+  const connect = () => {
+    link.answer = { accessToken: token };
+  };
+  return { fake, link, connect, client, first, second };
 }
 
 async function send(client: ReturnType<typeof chatRpc>, botId: string, text: string) {
@@ -144,13 +125,16 @@ const systemText = (call: TextOptions | undefined) =>
 
 describe("The first Connection", () => {
   it("is noted once in the next Turn of each of the user's Bots, saying which is the first", async () => {
-    const { fake, auth, deps, user, client, first, second } = await botsWithoutConnection();
+    const { fake, link, connect, client, first, second } = await botsWithoutConnection();
 
     await send(client, first, "before one");
+    // Linked once, but its refresh failed: not a Connection the Bot can use yet.
+    link.answer = { reconnect: true };
     await send(client, second, "before two");
     expect(newestWith(fake.calls, "before one")).not.toContain("first Connection");
+    expect(newestWith(fake.calls, "before two")).not.toContain("first Connection");
 
-    await connect(user, deps, auth);
+    connect();
     await send(client, first, "after one");
     await send(client, second, "after two");
     await send(client, first, "later one");
@@ -168,8 +152,8 @@ describe("The first Connection", () => {
   });
 
   it("is noted in the first Turn of a Bot that never had a Prompt start, once", async () => {
-    const { fake, auth, deps, user, client, first, second } = await botsWithoutConnection();
-    await connect(user, deps, auth);
+    const { fake, connect, client, first, second } = await botsWithoutConnection();
+    connect();
 
     await send(client, first, "hello one");
     await send(client, second, "hello two");
@@ -182,10 +166,10 @@ describe("The first Connection", () => {
   });
 
   it("isn't noted for a Bot that had Turns before the Host turned the feature on", async () => {
-    const { fake, auth, deps, user, client, first } = await botsWithoutConnection([], {
+    const { fake, connect, client, first } = await botsWithoutConnection([], {
       turnBeforeMcp: true,
     });
-    await connect(user, deps, auth);
+    connect();
 
     await send(client, first, "after mcp");
 
@@ -217,7 +201,7 @@ describe("The first Connection", () => {
       schedule: { days: ["mon"], times: ["11:00", "14:00"] },
       readOnly: true,
     };
-    const { auth, deps, user, client, first } = await botsWithoutConnection([
+    const { connect, client, first } = await botsWithoutConnection([
       round(),
       round(
         toolCall({ name: "create_routine", input: brief }),
@@ -226,7 +210,7 @@ describe("The first Connection", () => {
       round(),
     ]);
     await send(client, first, "before");
-    await connect(user, deps, auth);
+    connect();
 
     await send(client, first, "after");
 

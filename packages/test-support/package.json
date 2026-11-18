@@ -14,7 +14,6 @@
     "./executor.contract": "./src/executor.contract.ts",
     "./executors": "./src/executors.ts",
     "./fake-dictionary": "./src/fake-dictionary.ts",
-    "./fake-mcp-auth": "./src/fake-mcp-auth.ts",
     "./fake-mcp-server": "./src/fake-mcp-server.ts",
     "./fake-novnc": "./src/fake-novnc.ts",
     "./follow-send": "./src/follow-send.ts",

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { ImageModelSelect } from "../src/models";
-import { ConnectionsSection } from "../src/mcp";
+import { ConnectionsSection, type ConnectionsHost } from "../src/mcp";
 import {
   CredentialsSections,
   KeySettingsPage,
@@ -11,13 +11,15 @@ import {
 /** The Keys page as the Host composes it (`apps/web` keys route): Provider keys and Tool credentials, Connections and the Image Model. */
 export function HostKeysPage({
   linkedCredentials,
+  connections = { connect: () => {}, disconnect: () => {} },
 }: {
   linkedCredentials?: LinkedCredentialsHost;
+  connections?: ConnectionsHost;
 }): ReactNode {
   return (
     <KeySettingsPage>
       <CredentialsSections linkedCredentials={linkedCredentials} />
-      <ConnectionsSection />
+      <ConnectionsSection host={connections} />
       <ImageModelSelect />
     </KeySettingsPage>
   );

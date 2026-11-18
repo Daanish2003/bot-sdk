@@ -1,4 +1,4 @@
-import { ConnectionsSection } from "@botsdk/ui/mcp";
+import { type ConnectionsHost, ConnectionsSection } from "@botsdk/ui/mcp";
 import {
   CredentialsSections,
   ImageModelSelect,
@@ -33,6 +33,16 @@ const chatgpt: LinkedCredentialsHost = {
   },
 };
 
+// Connections (ADR 0037): the Host declares none yet, so the section stays hidden and neither runs.
+const connections: ConnectionsHost = {
+  connect: () => {
+    throw new Error("No Connections are declared");
+  },
+  disconnect: () => {
+    throw new Error("No Connections are declared");
+  },
+};
+
 export const Route = createFileRoute("/_auth/settings/keys")({
   loader: () => getChatgptLinkEnabled(),
   component: KeysRoute,
@@ -43,7 +53,7 @@ function KeysRoute() {
   return (
     <KeySettingsPage>
       <CredentialsSections linkedCredentials={linkEnabled ? chatgpt : undefined} />
-      <ConnectionsSection />
+      <ConnectionsSection host={connections} />
       <ImageModelSelect />
       <NotificationsSection />
       <LinkedIdentitiesSection />

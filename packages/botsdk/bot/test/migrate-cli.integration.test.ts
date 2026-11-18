@@ -118,8 +118,12 @@ describe("botsdk migrate", () => {
     await promisify(execFile)(process.execPath, [bin, "migrate", "--config", config], {
       env: { ...process.env, BOTSDK_TEST_DATABASE_URL: url },
     });
-    expect(await tablesOf(url)).toContain("mcp_connection");
-    expect((await journalOf(url)).map((row) => row.feature)).toContain("mcp");
+    // The fixture's Memory isn't enabled, so the CLI made only the core's tables.
+    expect(await tablesOf(url)).toContain("bot");
+    expect(await tablesOf(url)).not.toContain("memory_settings");
+    expect((await journalOf(url)).map((row) => row.migration)).toContain(
+      "20261118115121_drop_mcp_connection",
+    );
   }, 60_000);
 
   it("--print gives the pending SQL, and nothing is applied", async () => {

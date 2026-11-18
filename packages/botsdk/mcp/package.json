@@ -7,9 +7,7 @@
     "./package.json": "./package.json",
     ".": "./src/index.ts",
     "./client": "./src/client/index.ts",
-    "./react": "./src/react/index.ts",
-    "./server/connections": "./src/server/connections.ts",
-    "./server/db/connection": "./src/server/db/connection.ts"
+    "./react": "./src/react/index.ts"
   },
   "scripts": {
     "check-types": "tsc --noEmit"

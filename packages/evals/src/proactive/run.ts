@@ -27,15 +27,17 @@ import { defaultTimeZone } from "@botsdk/bot/bot/conversation";
 import { routineSnapshot } from "@botsdk/bot/bot/routines";
 import { fireKeyPrefix, lockConversation, receive } from "@botsdk/bot/bot/triggers";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
-import { saveTokens } from "@botsdk/mcp/server/connections";
 import { mcp } from "@botsdk/mcp";
 import { memory } from "@botsdk/memory";
 import { dayOf, notesPath } from "@botsdk/memory/server/bot-memory";
 import { createFakeAdapter, round, text, toolCall, withUsage } from "@botsdk/testing/fake-adapter";
 import { isReviewCall, passVerdict, verdictRound } from "@botsdk/testing/fake-reviewer";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
-import { type FakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
-import { createFakeMcpServer, type FakeMcpServer } from "@ai-chat/test-support/fake-mcp-server";
+import {
+  createFakeMcpServer,
+  fakeMcpResource,
+  type FakeMcpServer,
+} from "@ai-chat/test-support/fake-mcp-server";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
 import { createComputerSdk, databaseUrlFromEnv, prepareSchema } from "../computer/setup";
 import { fail, keyFor } from "../turn/judge-model";
@@ -72,7 +74,7 @@ const resultsDir = join(here, "results");
 const defaultModel = "openrouter:anthropic/claude-sonnet-5.5";
 
 /** The fake MCP server checks no token itself: each run's server is found by its token. */
-const anyToken = { accepts: () => true } as unknown as FakeMcpAuth;
+const anyToken = () => true;
 
 /** What the fake Model reports for each Turn call, so a Watch run has usage rows to price. */
 const fakeUsage: TokenUsage = {
@@ -149,6 +151,8 @@ async function main() {
   const db = await prepareSchema(databaseUrl);
   /** Each run's fake MCP server, by the access token its user's Connection holds. */
   const servers = new Map<string, FakeMcpServer>();
+  /** Each run's user's Connection token, which the Host's hook answers. */
+  const tokens = new Map<string, string>();
   const mcpEndpoint = new URL(fakeMcpResource);
   /** The fake Model's script per run, found by its API key. */
   const scripts = new Map<string, { queue: ReturnType<typeof round>[] }>();
@@ -158,13 +162,11 @@ async function main() {
     provider: fakeComputerProvider().provider,
     features: [
       mcp({
-        servers: [
-          {
-            ...mailServer,
-            url: fakeMcpResource,
-            oauth: { clientId: "eval-client", clientSecret: "eval-secret" },
-          },
-        ],
+        connections: [{ ...mailServer, mcp: { url: fakeMcpResource } }],
+        connection: (userId) => {
+          const token = tokens.get(userId);
+          return token ? { accessToken: token } : null;
+        },
       }),
       memory(),
     ],
@@ -260,16 +262,12 @@ async function main() {
           evalCase.notes.replaceAll("{today}", today),
         );
       }
-      // The user's Mail Connection: a token that never expires, served by this run's own server.
+      // The user's Mail Connection: the token the Host's hook answers, served by this run's own server.
       const token = `eval-${evalCase.id}-${repeat}-${randomUUID()}`;
       const tools = mailTools("");
-      const server = createFakeMcpServer({ auth: anyToken, tools });
+      const server = createFakeMcpServer({ accepts: anyToken, tools });
       servers.set(token, server);
-      await saveTokens(sdk, userId, mailServer.key, {
-        accessToken: token,
-        tokenType: "Bearer",
-        scope: "read write",
-      });
+      tokens.set(userId, token);
 
       // The Routine row of each kind, made when a Turn needs it, by an earlier Turn of the Bot's:
       // so a Routine's run isn't the Bot's first Turn, which the first Connection's note is for.

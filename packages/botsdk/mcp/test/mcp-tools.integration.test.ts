@@ -1,34 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { listConnections, readTokens, saveTokens } from "../src/server/connections";
 import { enabledFeatures } from "@botsdk/bot/feature";
-import { mcp, type McpApi } from "../src";
-import type { McpServerConfig } from "../src";
+import { mcp, type ConnectionAnswer, type McpApi, type McpConnection } from "../src";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
-import { createFakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
-import { createFakeMcpServer, type FakeMcpTool } from "@ai-chat/test-support/fake-mcp-server";
-import { createTestChat } from "@ai-chat/test-support/sdk";
+import {
+  createFakeMcpServer,
+  fakeMcpResource,
+  type FakeMcpTool,
+} from "@ai-chat/test-support/fake-mcp-server";
 import { insertUser, type TestUser } from "@ai-chat/test-support/users";
 
 vi.setConfig({ testTimeout: 30_000 });
 
-const basePath = "http://localhost/api/chat";
-const clientId = "ai-chat-test";
-const clientSecret = "test-client-secret";
+const token = "linear-access-token";
 
-const linear: McpServerConfig = {
-  key: "linear",
-  name: "Linear",
-  url: fakeMcpResource,
-  oauth: { clientId, clientSecret },
-};
+const linear: McpConnection = { key: "linear", name: "Linear", mcp: { url: fakeMcpResource } };
 
-/** A second server that never answers: its endpoint is down for good. */
-const sentry: McpServerConfig = {
+/** A second Connection whose server never answers: its endpoint is down for good. */
+const sentry: McpConnection = {
   key: "sentry",
   name: "Sentry",
-  url: "https://sentry.test/mcp",
-  oauth: { clientId, clientSecret },
+  mcp: { url: "https://sentry.test/mcp" },
 };
 
 const issueTools: FakeMcpTool[] = [
@@ -37,29 +29,42 @@ const issueTools: FakeMcpTool[] = [
   { name: "delete_issue", annotations: { readOnlyHint: true } },
 ];
 
-const mcpOrigin = new URL(fakeMcpResource).origin;
-
 /**
- * A signed-in user with a Linear Connection made through the plugin's OAuth routes, over a fake MCP
- * server and authorization server behind one injected `fetch`.
+ * A user whose Host's `connection` hook answers `answers[key]` (a token for every Connection unless
+ * given), over a fake MCP server that takes only `token`, behind one injected `fetch`.
  */
-async function setup({ servers = [linear] }: { servers?: McpServerConfig[] } = {}) {
+async function setup({
+  connections = [linear],
+  answers = {},
+}: {
+  connections?: McpConnection[];
+  answers?: Record<string, ConnectionAnswer>;
+} = {}) {
   const user: TestUser = await insertUser();
-  const auth = createFakeMcpAuth({ clientId, clientSecret });
-  const server = createFakeMcpServer({ auth, tools: issueTools });
+  const server = createFakeMcpServer({ accepts: (sent) => sent === token, tools: issueTools });
   const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.origin === new URL(sentry.url).origin) {
+    if (url.origin === new URL(sentry.mcp.url).origin) {
       return Promise.resolve(new Response("Service unavailable", { status: 503 }));
     }
-    // The MCP endpoint is the MCP server's; its `.well-known` discovery documents are the auth server's.
-    const isEndpoint = url.origin === mcpOrigin && url.pathname === "/mcp";
-    return (isEndpoint ? server.fetch : auth.fetch)(input, init);
+    return server.fetch(input, init);
   }) as typeof globalThis.fetch;
-  const deps = createTestSdk({ fetch, features: [mcp({ servers })] });
-  await connect(user, deps, auth);
+  const asked: Array<[string, string]> = [];
+  const deps = createTestSdk({
+    fetch,
+    features: [
+      mcp({
+        connections,
+        connection: (userId, key) => {
+          asked.push([userId, key]);
+          if (userId !== user.id) return null;
+          return key in answers ? answers[key] : { accessToken: token };
+        },
+      }),
+    ],
+  });
   const tools = (signal: AbortSignal) => mcpApi(deps).forUser(user.id).tools({ signal });
-  return { user, deps, auth, server, tools };
+  return { user, deps, server, tools, asked };
 }
 
 /** The mcp feature's API, as the instance serves it as `sdk.mcp`. */
@@ -68,36 +73,10 @@ function mcpApi(deps: TestDeps): McpApi {
   return feature.api!(context) as McpApi;
 }
 
-/** Signs `user` in to the Linear server through the plugin's OAuth routes (the redirect and callback). */
-async function connect(user: TestUser, deps: TestDeps, auth: ReturnType<typeof createFakeMcpAuth>) {
-  const client = createTestChat({ user, deps });
-  const start = await client.fetch(
-    new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
-      redirect: "manual",
-    }),
-  );
-  await client.fetch(
-    new Request(auth.approve(start.headers.get("location") ?? ""), { redirect: "manual" }),
-  );
-}
-
-/** Saves an expired access token for Linear, keeping the stored refresh token. */
-async function expire(deps: TestDeps, userId: string) {
-  const stored = await readTokens(deps, userId, "linear");
-  await saveTokens(deps, userId, "linear", {
-    accessToken: "stale-access-token",
-    tokenType: "Bearer",
-    refreshToken: stored?.tokens.refreshToken,
-    expiresAt: new Date(Date.now() - 60_000).toISOString(),
-    scope: stored?.scope ?? "",
-  });
-  return stored;
-}
-
 describe("mcp's forUser(id).tools()", () => {
   it("returns a connected server's tools under its key, filtered by its allowlist", async () => {
     const { tools } = await setup({
-      servers: [{ ...linear, tools: ["list_issues", "create_issue"] }],
+      connections: [{ ...linear, mcp: { ...linear.mcp, tools: ["list_issues", "create_issue"] } }],
     });
     const controller = new AbortController();
 
@@ -108,7 +87,7 @@ describe("mcp's forUser(id).tools()", () => {
   });
 
   it("marks every tool as needing approval except those approvalFree lists", async () => {
-    const { tools } = await setup({ servers: [{ ...linear, approvalFree: ["list_issues"] }] });
+    const { tools } = await setup({ connections: [{ ...linear, approvalFree: ["list_issues"] }] });
     const controller = new AbortController();
 
     const listed = await tools(controller.signal);
@@ -122,7 +101,7 @@ describe("mcp's forUser(id).tools()", () => {
   });
 
   it("stamps each tool read-only when the server hints it or readOnlyTools names it", async () => {
-    const { tools } = await setup({ servers: [{ ...linear, readOnlyTools: ["list_issues"] }] });
+    const { tools } = await setup({ connections: [{ ...linear, readOnlyTools: ["list_issues"] }] });
     const controller = new AbortController();
 
     const listed = await tools(controller.signal);
@@ -147,7 +126,7 @@ describe("mcp's forUser(id).tools()", () => {
     expect(server.calls).toEqual([{ name: "create_issue", arguments: { title: "Bug" } }]);
   });
 
-  it("returns nothing for a user with no Connection, and opens no client", async () => {
+  it("returns nothing for a user the hook has no Connection for, and opens no client", async () => {
     const { deps, server } = await setup();
     const stranger = await insertUser();
     const controller = new AbortController();
@@ -159,42 +138,33 @@ describe("mcp's forUser(id).tools()", () => {
     expect(server.requests).toBe(before);
   });
 
-  it("refreshes an expired access token first", async () => {
-    const { user, deps, auth, tools } = await setup();
-    await expire(deps, user.id);
-    const controller = new AbortController();
+  it.each([
+    ["needs reconnecting", { reconnect: true as const }],
+    ["isn't linked", null],
+  ] as const)(
+    "returns nothing, and opens no client, when the hook answers that it %s",
+    async (_case, answer) => {
+      const { server, tools, asked, user } = await setup({ answers: { linear: answer } });
 
-    const listed = await tools(controller.signal);
-    controller.abort();
+      const listed = await tools(new AbortController().signal);
 
-    expect(listed).toHaveLength(3);
-    expect(auth.tokenRequests.some((request) => request.grant_type === "refresh_token")).toBe(true);
-    expect((await readTokens(deps, user.id, "linear"))?.tokens.accessToken).not.toBe(
-      "stale-access-token",
-    );
-  });
+      expect(listed).toEqual([]);
+      expect(server.requests).toBe(0);
+      expect(asked).toEqual([[user.id, "linear"]]);
+    },
+  );
 
-  it("leaves a server out when it refuses the refresh, and marks its Connection for reconnection", async () => {
-    const { user, deps, auth, tools } = await setup();
-    const stored = await expire(deps, user.id);
-    if (stored?.tokens.refreshToken) auth.revokeRefresh(stored.tokens.refreshToken);
-    const controller = new AbortController();
+  it("leaves out a server that refuses the hook's token with HTTP 401", async () => {
+    const { server, tools } = await setup({ answers: { linear: { accessToken: "revoked" } } });
 
-    const listed = await tools(controller.signal);
+    const listed = await tools(new AbortController().signal);
 
     expect(listed).toEqual([]);
-    expect(await listConnections(deps, [linear], user.id)).toEqual([
-      expect.objectContaining({ key: "linear", state: "reconnect" }),
-    ]);
+    expect(server.authorizations).toContain("Bearer revoked");
   });
 
   it("skips a server that is down and returns the others' tools", async () => {
-    const { user, deps, tools } = await setup({ servers: [sentry, linear] });
-    await saveTokens(deps, user.id, "sentry", {
-      accessToken: "sentry-token",
-      tokenType: "Bearer",
-      scope: "",
-    });
+    const { tools } = await setup({ connections: [sentry, linear] });
     const controller = new AbortController();
 
     const listed = await tools(controller.signal);
@@ -236,5 +206,59 @@ describe("mcp's forUser(id).tools()", () => {
 
     expect(listed).toEqual([]);
     expect(server.requests).toBe(before);
+  });
+});
+
+describe("mcp's listConnections", () => {
+  it("reports each declared Connection's state from the hook, in the Host's order", async () => {
+    const github: McpConnection = { key: "github", name: "GitHub", mcp: { url: fakeMcpResource } };
+    const { deps, user } = await setup({
+      connections: [github, linear, sentry],
+      answers: { github: null, linear: { reconnect: true }, sentry: { accessToken: "t" } },
+    });
+
+    expect(await mcpApi(deps).listConnections({ userId: user.id })).toEqual([
+      { key: "github", name: "GitHub", state: "disconnected" },
+      { key: "linear", name: "Linear", state: "reconnect" },
+      { key: "sentry", name: "Sentry", state: "connected" },
+    ]);
+  });
+
+  it("lists nothing when the Host declares no Connections", async () => {
+    const { deps, user } = await setup({ connections: [] });
+
+    expect(await mcpApi(deps).listConnections({ userId: user.id })).toEqual([]);
+  });
+
+  it("reports every Connection as not connected without a hook, and one whose hook fails", async () => {
+    const user = await insertUser();
+    const errors: unknown[] = [];
+    const without = createTestSdk({ features: [mcp({ connections: [linear] })] });
+    const failing = createTestSdk({
+      logger: { error: (...args: unknown[]) => errors.push(args) },
+      features: [
+        mcp({
+          connections: [linear],
+          connection: () => {
+            throw new Error("Better Auth is down");
+          },
+        }),
+      ],
+    });
+
+    for (const deps of [without, failing]) {
+      expect(await mcpApi(deps).listConnections({ userId: user.id })).toEqual([
+        { key: "linear", name: "Linear", state: "disconnected" },
+      ]);
+    }
+    expect(errors).toHaveLength(1);
+  });
+});
+
+describe("mcp({ connections })", () => {
+  it("refuses a Connection whose server URL isn't HTTPS when the SDK is built", () => {
+    const plain = { ...linear, mcp: { url: "http://mcp.example.com/mcp" } };
+
+    expect(() => createTestSdk({ features: [mcp({ connections: [plain] })] })).toThrow(/HTTPS/);
   });
 });

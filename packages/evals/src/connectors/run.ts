@@ -24,12 +24,14 @@ import type { AnyTextAdapter, TextOptions } from "@tanstack/ai";
 
 import { botTrigger } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
-import { saveTokens } from "@botsdk/mcp/server/connections";
 import { mcp } from "@botsdk/mcp";
 import { runnerJobs } from "@botsdk/bot/runner/internal";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
-import { type FakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
-import { createFakeMcpServer, type FakeMcpServer } from "@ai-chat/test-support/fake-mcp-server";
+import {
+  createFakeMcpServer,
+  fakeMcpResource,
+  type FakeMcpServer,
+} from "@ai-chat/test-support/fake-mcp-server";
 import { isReviewCall, passVerdict, verdictRound } from "@botsdk/testing/fake-reviewer";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
 import { chatgptPlanFromEnv } from "../chatgpt-plan";
@@ -61,7 +63,7 @@ function passingReviews(adapter: AnyTextAdapter): AnyTextAdapter {
 }
 
 /** The fake MCP server checks no token itself: each run's server is found by its token. */
-const anyToken = { accepts: () => true } as unknown as FakeMcpAuth;
+const anyToken = () => true;
 
 type RunResult = {
   caseId: string;
@@ -103,6 +105,8 @@ async function main() {
   const db = await prepareSchema(databaseUrl);
   /** Each run's fake MCP server, by the access token its user's Connection holds. */
   const servers = new Map<string, FakeMcpServer>();
+  /** Each run's user's Connection token, which the Host's hook answers. */
+  const tokens = new Map<string, string>();
   const mcpEndpoint = new URL(fakeMcpResource);
   /** The fake Model, one adapter per run (found by its API key). */
   const adapters = new Map<string, AnyTextAdapter>();
@@ -111,13 +115,11 @@ async function main() {
     provider: fakeComputerProvider().provider,
     features: [
       mcp({
-        servers: [
-          {
-            ...linearServer,
-            url: fakeMcpResource,
-            oauth: { clientId: "eval-client", clientSecret: "eval-secret" },
-          },
-        ],
+        connections: [{ ...linearServer, mcp: { url: fakeMcpResource } }],
+        connection: (userId) => {
+          const token = tokens.get(userId);
+          return token ? { accessToken: token } : null;
+        },
       }),
     ],
     wrapFetch: (real) => async (input, init) => {
@@ -194,19 +196,15 @@ async function main() {
     let toolCalls: Call[] = [];
     try {
       const { userId, bot: made } = await freshBot(env, evalCase.id, repeat);
-      // The user's Linear Connection: a token that never expires, served by this run's own server.
+      // The user's Linear Connection: the token the Host's hook answers, served by this run's own server.
       const token = `eval-${evalCase.id}-${repeat}-${randomUUID()}`;
       const server = createFakeMcpServer({
-        auth: anyToken,
+        accepts: anyToken,
         tools: linearTools(evalCase.listResult),
       });
       server.failCalls = evalCase.failCalls ?? false;
       servers.set(token, server);
-      await saveTokens(sdk, userId, linearServer.key, {
-        accessToken: token,
-        tokenType: "Bearer",
-        scope: "read write",
-      });
+      tokens.set(userId, token);
       const triggerId = uuidv7();
       for await (const _ of await sendAndFollow(sdk, {
         userId,

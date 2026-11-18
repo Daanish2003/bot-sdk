@@ -1,10 +1,20 @@
 import { Button } from "@/components/ui/button";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import type { McpUrls } from "@botsdk/mcp/client";
-import { useDisconnectMcpServer, useMcpConnections, useRefreshMcp } from "@botsdk/mcp/react";
-import { useChatAdapter, useI18n } from "@botsdk/react/provider";
+import { useMcpConnections, useRefreshMcp } from "@botsdk/mcp/react";
+import { useI18n } from "@botsdk/react/provider";
 import { serverErrorText } from "@botsdk/react/rpc-error";
+
+/**
+ * What the Host provides for Connections (ADR 0037): how a user connects and disconnects one, by
+ * its key. The Bot SDK has no auth, so the Host owns both. Reconnect runs `connect` again.
+ */
+export type ConnectionsHost = {
+  /** Starts connecting; the Host's auth takes the browser away and returns to the Keys page. */
+  connect: (key: string) => void | Promise<void>;
+  disconnect: (key: string) => void | Promise<void>;
+};
 
 const stateKeys = {
   connected: "settings.connected",
@@ -13,59 +23,56 @@ const stateKeys = {
 } as const;
 
 /**
- * The keys page's Connections: the MCP servers the Host offers, with Connect, Reconnect and
- * Disconnect. Hidden entirely when the Host lists none (spec #91).
+ * The Keys page's Connections: the ones the Host declares, with their state, and Connect,
+ * Reconnect and Disconnect through the Host. Hidden entirely when the Host declares none.
  */
-export function ConnectionsSection() {
-  const { connectionsUrl } = useChatAdapter<McpUrls>();
+export function ConnectionsSection({ host }: { host: ConnectionsHost }) {
   const i18n = useI18n();
   const { t } = i18n;
   const connections = useMcpConnections();
   const refresh = useRefreshMcp();
-  const disconnect = useDisconnectMcpServer({
+  const connect = useMutation({
+    mutationFn: (key: string) => Promise.resolve(host.connect(key)),
+    onError: (error) => toast.error(serverErrorText(i18n, error)),
+  });
+  const disconnect = useMutation({
+    mutationFn: (key: string) => Promise.resolve(host.disconnect(key)),
     onSuccess: refresh,
     onError: (error) => toast.error(serverErrorText(i18n, error)),
   });
-  const servers = connections.data ?? [];
-  if (servers.length === 0) return null;
+  const rows = connections.data ?? [];
+  if (rows.length === 0) return null;
 
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-medium">{t("settings.connections")}</h2>
       <p className="text-xs text-muted-foreground">{t("settings.connectionsHelp")}</p>
       <ul className="divide-y overflow-hidden rounded-xl border">
-        {servers.map((server) => (
-          <li key={server.key} className="flex items-center gap-3 px-4 py-3">
+        {rows.map((connection) => (
+          <li key={connection.key} className="flex items-center gap-3 px-4 py-3">
             <div className="flex-1 space-y-0.5">
-              <span className="text-sm font-medium">{server.name}</span>
-              <p className="text-xs text-muted-foreground">
-                {t(stateKeys[server.state])}
-                {server.scopes.length > 0 &&
-                  t("settings.scopes", { scopes: server.scopes.join(", ") })}
-              </p>
+              <span className="text-sm font-medium">{connection.name}</span>
+              <p className="text-xs text-muted-foreground">{t(stateKeys[connection.state])}</p>
             </div>
             <div className="flex gap-2">
-              {server.state !== "connected" && (
+              {connection.state !== "connected" && (
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => {
-                    // The sign-in is a redirect through the server, so it is a page load, not a request.
-                    const returnTo = encodeURIComponent(window.location.pathname);
-                    window.location.assign(
-                      `${connectionsUrl}/connect?server=${encodeURIComponent(server.key)}&returnTo=${returnTo}`,
-                    );
-                  }}
+                  disabled={connect.isPending}
+                  onClick={() => connect.mutate(connection.key)}
                 >
-                  {server.state === "reconnect" ? t("settings.reconnect") : t("settings.connect")}
+                  {connection.state === "reconnect"
+                    ? t("settings.reconnect")
+                    : t("settings.connect")}
                 </Button>
               )}
-              {server.state !== "disconnected" && (
+              {connection.state !== "disconnected" && (
                 <Button
                   size="sm"
                   variant="ghost"
                   disabled={disconnect.isPending}
-                  onClick={() => disconnect.mutate({ key: server.key })}
+                  onClick={() => disconnect.mutate(connection.key)}
                 >
                   {t("settings.disconnect")}
                 </Button>

@@ -1,21 +1,11 @@
 import { fakeImageModel, fakeModel } from "./support/fake-ollama.ts";
 
-/** Where the end-to-end run's server, fake Ollama and fake MCP server live. */
+/** Where the end-to-end run's server and fake Ollama live. */
 
 export const port = 3100;
 export const baseURL = `http://localhost:${port}`;
 export const fakeOllamaPort = 11534;
 export const fakeOllamaHost = `http://localhost:${fakeOllamaPort}`;
-export const fakeMcpPort = 11600;
-
-/**
- * The second server, which offers one MCP server (the `MCP_SERVER_*` variables). The default
- * server offers none, so its tests see no Connections. Both share the database.
- */
-export const mcpPort = 3101;
-export const mcpBaseURL = `http://localhost:${mcpPort}`;
-export const fakeMcpClientId = "ai-chat-e2e";
-export const fakeMcpClientSecret = "e2e-mcp-client-secret-not-for-production";
 
 /**
  * The server's environment: fixed secrets, never used outside these tests. Its database is
@@ -69,20 +59,4 @@ export const serverEnv = {
   E2B_SANDBOX_URL: "",
   // Set only by a run with Redis (`redis.spec.ts`); otherwise the server runs on memory.
   ...(process.env.REDIS_URL ? { REDIS_URL: process.env.REDIS_URL } : {}),
-};
-
-/**
- * The MCP server's environment: `serverEnv` with its own address, the fake MCP server's
- * localhost allowance (the SSRF guard's test-only list) and the one MCP server `apps/web` offers.
- */
-export const mcpServerEnv = {
-  ...serverEnv,
-  PORT: String(mcpPort),
-  BETTER_AUTH_URL: mcpBaseURL,
-  SSRF_ALLOW_HOSTS: `localhost:${fakeMcpPort}`,
-  MCP_SERVER_KEY: "tracker",
-  MCP_SERVER_NAME: "E2E Tracker",
-  MCP_SERVER_URL: `http://localhost:${fakeMcpPort}/mcp`,
-  MCP_SERVER_OAUTH_CLIENT_ID: fakeMcpClientId,
-  MCP_SERVER_OAUTH_CLIENT_SECRET: fakeMcpClientSecret,
 };

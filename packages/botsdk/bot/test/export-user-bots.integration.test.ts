@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createBotSdk } from "../src/create-chat";
+import type { AnyFeature } from "../src/feature";
 import { bot } from "../src/storage";
 import { uuidv7 } from "../src/lib/uuidv7";
 import { exportUserData } from "../src/user-data";
 import type { BotExport } from "../src/bot/conversation";
 import { saveSecret } from "../src/bot/safety";
-import { saveTokens } from "@botsdk/mcp/server/connections";
 import { mcp } from "@botsdk/mcp";
 import {
   logPath,
@@ -36,13 +36,13 @@ const accessToken = "linear-token-never-exported";
 afterEach(stopBotRunners);
 
 /** The Host's SDK with every Bot-only plugin that exports a part of a user's data. */
-function chatFor() {
+function chatFor(features: AnyFeature[] = [memory(), mcp()]) {
   return createBotSdk({
     database: postgres({ connectionString: testDatabaseUrl }),
     keyEncryptionSecrets: [testKey],
     computer: fakeComputerProvider().provider,
     models: {},
-    features: [memory(), mcp()],
+    features,
   });
 }
 
@@ -67,7 +67,10 @@ describe("createBotSdk().users.export, with Bots", () => {
 
   it("never includes the Provider or Tool keys, a Secret's value or a Connection's tokens", async () => {
     const owner = await insertUser();
-    const { deps } = await botSdk({ features: [mcp()] }, { idle: true });
+    // The Host's hook answers a Connection's token (ADR 0037).
+    const linear = { key: "linear", name: "Linear", mcp: { url: "https://mcp.example.com/mcp" } };
+    const withConnection = mcp({ connections: [linear], connection: () => ({ accessToken }) });
+    const { deps } = await botSdk({ features: [withConnection] }, { idle: true });
     await saveCredentials(deps, owner.id, {
       service: "anthropic",
       fields: { apiKey: providerKey },
@@ -82,9 +85,8 @@ describe("createBotSdk().users.export, with Bots", () => {
     });
     const { botId } = await botOf(deps, owner, "anthropic:claude-sonnet-5-5");
     await saveSecret(deps, owner.id, { botId, name: "GITHUB_TOKEN", value: secretValue });
-    await saveTokens(deps, owner.id, "linear", { accessToken, tokenType: "Bearer", scope: "" });
 
-    const document = await chatFor().users.export({ userId: owner.id });
+    const document = await chatFor([memory(), withConnection]).users.export({ userId: owner.id });
 
     const text = JSON.stringify(document);
     // Positive control: the Bot those were saved for is in it.

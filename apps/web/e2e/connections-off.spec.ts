@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { createBot, signInAsSeededUserWithModel } from "./helpers";
 
-test("with no MCP server configured, the keys page has no Connections and a Bot's composer no Tools menu", async ({
+test("with no Connections declared, the keys page has no Connections and a Bot's composer no Tools menu", async ({
   page,
 }) => {
   await signInAsSeededUserWithModel(page);
