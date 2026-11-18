@@ -4,19 +4,17 @@ import { createDb } from "@ai-chat/db";
 import { createHttpHandler, createScreenSocket } from "@botsdk/bot/http";
 import { createBotSdk } from "@botsdk/bot";
 import { redisRuntime, redisStore } from "@botsdk/pubsub-redis";
-import { sms } from "@botsdk/channel-sms";
-import { voice } from "@botsdk/representative";
 import { telegram } from "@botsdk/channel-telegram";
 import { emailChannel } from "@botsdk/bot/channel";
 import { fakeImageAdapter } from "@botsdk/bot/models";
 import { log } from "evlog";
 
-import botsdkConfig, { basePath, e2b } from "../botsdk.config";
+import botsdkConfig, { e2b } from "../botsdk.config";
 import { isBanActive } from "./admin/ban";
 import { appName, sender } from "./email";
 import { emailProviderOf } from "./email-provider";
 import { webPushChannelsOf } from "./push-channel";
-import { ENV, smsApiBase, ssrfAllowHosts } from "./env.server";
+import { ENV, ssrfAllowHosts } from "./env.server";
 import { blobStoreOf } from "./blob-store";
 import { getQuota } from "./admin/quota";
 import {
@@ -140,12 +138,6 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
     // Telegram (spec #1044): the tokens are per Channel account, so it needs no Host env.
     telegram(),
-    // SMS (spec #1174): Telnyx, or the lab phone when SMS_API_BASE points at it. The keys and the
-    // number are per Channel account.
-    sms({ apiBase: smsApiBase }),
-    // Phone calls (ticket #1381, ADR 0036): a voice account in a Representative's setup. It sends and
-    // receives nothing; the Voice agent calls the Representative's hooks.
-    voice(),
     // Web push (spec #1024): on only with the Host's VAPID key pair (VAPID_*).
     ...webPushChannelsOf({
       VAPID_PUBLIC_KEY: ENV.VAPID_PUBLIC_KEY,
@@ -155,6 +147,9 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     }),
   ],
 }));
+
+// Where the Bot SDK's HTTP layer is mounted (src/routes/api/chat/$.ts).
+const basePath = "/api/chat";
 
 // The Bot SDK over HTTP (spec #873): every RPC call and route under /api/chat, for the signed-in
 // user, and the public ones (the Routine webhook, email inbound, the live view's pages).

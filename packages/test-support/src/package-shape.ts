@@ -11,7 +11,6 @@ export type PackageManifest = {
   exports: Record<string, string>;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
-  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   devDependencies?: Record<string, string>;
 };
 
@@ -59,13 +58,7 @@ export function reachedFrom(packageRoot: string, entry: string): string[] {
   return [...seen];
 }
 
-const features = [
-  "@botsdk/memory",
-  "@botsdk/skills",
-  "@botsdk/knowledge",
-  "@botsdk/mcp",
-  "@botsdk/representative",
-];
+const features = ["@botsdk/memory", "@botsdk/skills", "@botsdk/knowledge", "@botsdk/mcp"];
 
 /**
  * The package test of an optional feature (spec #875): the feature at its root, its client part
@@ -92,10 +85,7 @@ export function describeFeaturePackage(name: string, testUrl: string) {
       expect(Object.keys(manifest.peerDependencies ?? {})).toEqual(
         expect.arrayContaining(["@botsdk/bot", "@botsdk/client", "@botsdk/react"]),
       );
-      // An optional peer is the Host's to pass in, so a Host never has to install it.
-      const names = Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies }).filter(
-        (other) => !manifest.peerDependenciesMeta?.[other]?.optional,
-      );
+      const names = Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies });
       expect(names.filter((other) => features.includes(other) && other !== name)).toEqual([]);
     });
 

@@ -2,7 +2,6 @@ packages:
   - apps/*
   - packages/*
   - packages/botsdk/*
-  - "!apps/livekit-test"
 allowBuilds:
   esbuild: true
   sharp: true

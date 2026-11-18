@@ -1,1 +1,0 @@
-ALTER TABLE "botsdk"."representative_customer_merge" ADD COLUMN "hand_off_ids" jsonb DEFAULT '[]' NOT NULL;

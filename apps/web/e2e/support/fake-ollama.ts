@@ -33,22 +33,6 @@ export const assignmentTitle = "Draft the launch post";
 export const assignmentInstructions = "Write 100 words about the launch.";
 
 /**
- * A Bot prompt with this marker makes the fake Model draft `draftedRepresentativeName` with
- * `draft_representative` (ticket #1195), through `run_tool`, as a deferred tool is called.
- */
-export const draftRepresentativeMarker = "[draft-representative]";
-export const draftedRepresentativeName = "Front desk";
-export const draftedRepresentativeWhy = "Customers keep asking about opening hours.";
-
-/**
- * A Bot prompt with this marker makes the fake Model propose `price.haircut` become `proposedFactValue`
- * with `propose_fact` (ticket #1264), through `run_tool`.
- */
-export const proposeFactMarker = "[propose-fact]";
-export const proposedFactValue = "50 USD";
-export const proposedFactWhy = "The new price list starts next week.";
-
-/**
  * A prompt with this marker makes the fake Model call `generate_image` (spec #278), when the request
  * offers it. The Host's Image Model is `fakeImageModel`, answered by the fake image adapter.
  */
@@ -231,18 +215,6 @@ export function wideReply(): string {
 }
 
 /**
- * A web chat visitor's message with this marker makes the fake Model answer it with the Representative's
- * `reply` tool (ticket #1340): `representativeReply`, or `hostileRepresentativeReply` when the message
- * also holds `hostileMarker`. The reply cites `general.note` on topic `general`, which the test makes an
- * auto topic with that fact, so it goes out with no owner approval.
- */
-export const replyMarker = "[reply]";
-export const hostileMarker = "[hostile]";
-export const representativeReply = "We open at nine.";
-export const hostileRepresentativeReply =
-  '<img src=x onerror="window.pwnedByModel = 1"><script>window.pwnedByModel = 2</script>';
-
-/**
  * Reply word by word, this far apart. A prompt with `slowMarker` gets `slowReply`, 40 s of it, so
  * only a Stop ends its Turn within a test's wait.
  */
@@ -352,20 +324,6 @@ export function startFakeOllama(port: number): Promise<Server> {
         calls(sendToUserToolName, { text: file ? fileReply(file) : reply, endTurn: true });
         return;
       }
-      // A Representative's Turn ends its prompt with system notes, so the visitor's words are in an earlier message.
-      const turnText = messages
-        .filter((message) => message.role === "user")
-        .map((message) => message.content)
-        .join(String.fromCharCode(10));
-      if (stream && !answering && offers("reply") && turnText.includes(replyMarker)) {
-        calls("reply", {
-          topic: "general",
-          sources: [{ type: "fact", key: "general.note" }],
-          text: turnText.includes(hostileMarker) ? hostileRepresentativeReply : representativeReply,
-          kind: "small_talk",
-        });
-        return;
-      }
       if (stream && !answering && offers(runToolName) && prompt.includes(mcpMarker)) {
         calls(runToolName, { name: mcpToolName, args: mcpToolArguments });
         return;
@@ -378,29 +336,6 @@ export function startFakeOllama(port: number): Promise<Server> {
             title: assignmentTitle,
             instructions: assignmentInstructions,
           },
-        });
-        return;
-      }
-      if (
-        stream &&
-        !answering &&
-        offers(runToolName) &&
-        prompt.includes(draftRepresentativeMarker)
-      ) {
-        calls(runToolName, {
-          name: "draft_representative",
-          args: {
-            name: draftedRepresentativeName,
-            jobText: "Answer questions about opening hours.",
-            why: draftedRepresentativeWhy,
-          },
-        });
-        return;
-      }
-      if (stream && !answering && offers(runToolName) && prompt.includes(proposeFactMarker)) {
-        calls(runToolName, {
-          name: "propose_fact",
-          args: { key: "price.haircut", value: proposedFactValue, why: proposedFactWhy },
         });
         return;
       }

@@ -1,5 +1,4 @@
 import { ENV } from "./env";
-import { smsApiBaseOf } from "./sms-api-base";
 import { ssrfAllowHostsOf } from "./ssrf-allow";
 
 // The SSRF allowance is for the end-to-end tests too: refused unless BETTER_AUTH_URL is localhost.
@@ -21,8 +20,5 @@ if (
 ) {
   throw new Error("MAILPIT_API_URL needs a localhost BETTER_AUTH_URL");
 }
-
-// The lab phone in place of Telnyx is for a Host on this machine only, as above.
-export const smsApiBase = smsApiBaseOf(ENV);
 
 export { ENV };
