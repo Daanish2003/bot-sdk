@@ -21,8 +21,25 @@ describe("disconnecting a Connection", () => {
     expect(unlinked).toEqual(["a2"]);
   });
 
+  it("unlinks Gmail without touching Google Calendar", async () => {
+    const unlinked: string[] = [];
+
+    await unlinkConnection(
+      [
+        { id: "a1", providerId: "google-calendar" },
+        { id: "a2", providerId: "gmail" },
+      ],
+      "gmail",
+      async (id) => {
+        unlinked.push(id);
+      },
+    );
+
+    expect(unlinked).toEqual(["a2"]);
+  });
+
   it("does nothing for a key the Host doesn't declare", async () => {
-    await unlinkConnection([{ id: "a1", providerId: "github-connection" }], "gmail", async () => {
+    await unlinkConnection([{ id: "a1", providerId: "github-connection" }], "outlook", async () => {
       throw new Error("should not unlink");
     });
   });

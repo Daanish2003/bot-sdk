@@ -55,9 +55,8 @@ describe("the Google Calendar Connection", () => {
   const google = { GOOGLE_CLIENT_ID: "id.apps.googleusercontent.com", GOOGLE_CLIENT_SECRET: "s" };
 
   it("is declared, with the Host's Calendar tools, when the Google client id and secret are set", () => {
-    const [calendar, ...others] = connectionsOf(google);
+    const [calendar] = connectionsOf(google);
 
-    expect(others).toEqual([]);
     expect(calendar).toMatchObject({ key: "google_calendar", name: "Google Calendar" });
     expect(calendar.mcp).toBeUndefined();
     expect(calendar.tools?.map((tool) => tool.name)).toEqual([
@@ -84,10 +83,52 @@ describe("the Google Calendar Connection", () => {
     expect(connectionsOf(env)).toEqual([]);
   });
 
+  it("is declared with Google Calendar, from the same Google client, so each connects on its own", () => {
+    expect(connectionsOf(google).map((connection) => connection.key)).toEqual([
+      "google_calendar",
+      "gmail",
+    ]);
+  });
+
   it("comes after GitHub when both clients are set", () => {
     const keys = connectionsOf({ ...google, GITHUB_CLIENT_ID: "id", GITHUB_CLIENT_SECRET: "s" });
 
-    expect(keys.map((connection) => connection.key)).toEqual(["github", "google_calendar"]);
+    expect(keys.map((connection) => connection.key)).toEqual([
+      "github",
+      "google_calendar",
+      "gmail",
+    ]);
+  });
+});
+
+describe("the Gmail Connection", () => {
+  const google = { GOOGLE_CLIENT_ID: "id.apps.googleusercontent.com", GOOGLE_CLIENT_SECRET: "s" };
+  const gmail = () => connectionsOf(google).find((connection) => connection.key === "gmail");
+
+  it("is declared, with the Host's Gmail tools, when the Google client id and secret are set", () => {
+    expect(gmail()).toMatchObject({ key: "gmail", name: "Gmail" });
+    expect(gmail()?.mcp).toBeUndefined();
+    expect(gmail()?.tools?.map((tool) => tool.name)).toEqual([
+      "search_threads",
+      "get_thread",
+      "create_draft",
+      "send_draft",
+      "archive_thread",
+    ]);
+  });
+
+  it("reads without approval or a write, and asks approval for every write", () => {
+    expect(gmail()?.approvalFree).toEqual(["search_threads", "get_thread"]);
+    expect(gmail()?.readOnlyTools).toEqual(["search_threads", "get_thread"]);
+  });
+
+  it.each([
+    ["neither is set", {}],
+    ["only the id is set", { GOOGLE_CLIENT_ID: "id" }],
+    ["only the secret is set", { GOOGLE_CLIENT_SECRET: "s" }],
+    ["both are empty", { GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" }],
+  ])("is not declared when %s", (_name, env) => {
+    expect(connectionsOf(env).find((connection) => connection.key === "gmail")).toBeUndefined();
   });
 });
 
@@ -115,7 +156,7 @@ describe("the connection hook", () => {
       },
     });
 
-    expect(await hook("user-1", "gmail")).toBeNull();
+    expect(await hook("user-1", "outlook")).toBeNull();
   });
 
   it("asks for the token of the user it was asked about", async () => {

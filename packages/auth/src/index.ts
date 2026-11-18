@@ -58,11 +58,16 @@ const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 ];
 
+/** The Gmail Connection's provider id (ADR 0037), on the Google sign-in's client. */
+export const GMAIL_PROVIDER = "gmail";
+const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"];
+
 // Providers a user links on purpose but never signs in with: they don't count as a way to sign in.
 const LINK_ONLY_PROVIDERS = [
   CHATGPT_PROVIDER,
   GITHUB_CONNECTION_PROVIDER,
   GOOGLE_CALENDAR_PROVIDER,
+  GMAIL_PROVIDER,
 ];
 
 type GithubProfile = { id: number; login: string; name?: string | null; email?: string | null };
@@ -251,7 +256,10 @@ export function createAuth(
         ]
       : []),
     ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
-      ? [googleConnection(env, GOOGLE_CALENDAR_PROVIDER, GOOGLE_CALENDAR_SCOPES)]
+      ? [
+          googleConnection(env, GOOGLE_CALENDAR_PROVIDER, GOOGLE_CALENDAR_SCOPES),
+          googleConnection(env, GMAIL_PROVIDER, GMAIL_SCOPES),
+        ]
       : []),
   ];
   const linkOnlyOAuth = linkOnly.length > 0 ? genericOAuth({ config: linkOnly }) : undefined;

@@ -58,6 +58,14 @@ To offer the Google Calendar Connection (a Bot listing calendars and events, cre
 
 Connect Google Calendar on Settings, Keys, with any Google account, which may differ from the one you sign in with. The link asks Google for a refresh token (`access_type=offline`, `prompt=consent`), so it keeps working past the hour its access token lasts.
 
+To offer the Gmail Connection (a Bot searching and reading threads, creating and sending drafts and archiving threads, through tools apps/web wrote over the Gmail API), set the same `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and in the same Google Cloud project, once:
+
+1. **Enable the Gmail API** (APIs & Services, Library).
+2. **Add the link's redirect URI** to the OAuth client's authorized redirect URIs: `<BETTER_AUTH_URL>/api/auth/callback/gmail`, for example `http://localhost:3001/api/auth/callback/gmail`.
+3. **Add the scope to the consent screen** (Data access): `https://www.googleapis.com/auth/gmail.modify`. It is a restricted scope: as with Calendar, leave the app unverified under the personal-use exemption, and publish the app as step 4 of the Calendar setup says.
+
+Connect Gmail on Settings, Keys, separately from Google Calendar: each has its own account row, so either can be disconnected alone. It asks Google for a refresh token like the Calendar link does.
+
 ## Testing
 
 Vitest runs every package's tests from the root config (`vitest.config.ts`):

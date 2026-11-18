@@ -1,6 +1,7 @@
 import type { LinkedAccessToken } from "@ai-chat/auth/linked-token";
 import type { ConnectionHook, McpConnection } from "@botsdk/mcp";
 
+import { gmailTools } from "./gmail";
 import { googleCalendarTools } from "./google-calendar";
 
 // GitHub's remote MCP server tools (github/github-mcp-server, its `readOnlyHint: true` tools of the
@@ -45,9 +46,12 @@ const githubWriteTools = [
 // The Google Calendar tools that only read: no approval, and a read-only run may call them.
 const calendarReadTools = ["list_calendars", "list_events"];
 
+// The Gmail tools that only read: no approval, and a read-only run may call them.
+const gmailReadTools = ["search_threads", "get_thread"];
+
 /**
  * The Connections the Host declares (ADR 0037), each when the sign-in client it reuses is set:
- * GitHub on the GitHub OAuth App, Google Calendar on the Google client.
+ * GitHub on the GitHub OAuth App, Google Calendar and Gmail on the Google client.
  */
 export function connectionsOf(env: {
   GITHUB_CLIENT_ID?: string;
@@ -77,6 +81,13 @@ export function connectionsOf(env: {
             tools: googleCalendarTools(),
             approvalFree: calendarReadTools,
             readOnlyTools: calendarReadTools,
+          },
+          {
+            key: "gmail",
+            name: "Gmail",
+            tools: gmailTools(),
+            approvalFree: gmailReadTools,
+            readOnlyTools: gmailReadTools,
           },
         ]
       : []),
