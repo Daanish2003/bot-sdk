@@ -38,6 +38,8 @@ step() {
 }
 
 step install pnpm install --frozen-lockfile
+# A frozen install with an up-to-date lockfile skips postinstall, which generates apps/web/src/env.ts from .env.schema.
+step env pnpm env:generate
 step lint pnpm exec oxlint
 step format pnpm exec oxfmt --check
 step typecheck pnpm check-types
