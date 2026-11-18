@@ -66,6 +66,15 @@ To offer the Gmail Connection (a Bot searching and reading threads, creating and
 
 Connect Gmail on Settings, Keys, separately from Google Calendar: each has its own account row, so either can be disconnected alone. It asks Google for a refresh token like the Calendar link does.
 
+To offer the Notion Connection (a Bot searching and reading pages, querying databases, creating pages, adding text and comments, through tools apps/web wrote over Notion's REST API), set `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`. Unlike GitHub, Google Calendar and Gmail, it has its own client, once:
+
+1. **Create a public integration** at <https://www.notion.so/profile/integrations> (type: Public; Notion asks for a company name, a website and privacy and terms links).
+2. **Add the redirect URI** `<BETTER_AUTH_URL>/api/auth/callback/notion`, for example `http://localhost:3001/api/auth/callback/notion`.
+3. **Set its capabilities**: read content, update content and insert comments. Notion has no scopes: these capabilities are what the integration may do, and the user chooses which pages to share when they connect.
+4. Copy the integration's OAuth client ID and secret into `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`.
+
+Connect Notion on Settings, Keys. Notion gives the integration only the pages the user picked in its consent screen; to share more, Connect again.
+
 ## Testing
 
 Vitest runs every package's tests from the root config (`vitest.config.ts`):

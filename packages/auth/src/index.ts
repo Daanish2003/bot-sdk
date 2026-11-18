@@ -33,6 +33,10 @@ export type AuthConfig = {
   // `ext_agent_host_id` it was registered under (ADR 0023).
   CHATGPT_CLIENT_ID?: string;
   CHATGPT_HOST_ID?: string;
+  // The Notion Connection is registered only when both are set: a Notion public integration's
+  // OAuth client id and secret.
+  NOTION_CLIENT_ID?: string;
+  NOTION_CLIENT_SECRET?: string;
 };
 
 // ChatGPT sign-in endpoints, scopes and audience (spec #638).
@@ -62,15 +66,24 @@ const GOOGLE_CALENDAR_SCOPES = [
 export const GMAIL_PROVIDER = "gmail";
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"];
 
+/** The Notion Connection's provider id (ADR 0037), on its own Notion public integration. */
+export const NOTION_PROVIDER = "notion";
+// The version Notion's API is asked for (https://developers.notion.com/reference/versioning).
+const NOTION_VERSION = "2026-03-11";
+
 // Providers a user links on purpose but never signs in with: they don't count as a way to sign in.
 const LINK_ONLY_PROVIDERS = [
   CHATGPT_PROVIDER,
   GITHUB_CONNECTION_PROVIDER,
   GOOGLE_CALENDAR_PROVIDER,
   GMAIL_PROVIDER,
+  NOTION_PROVIDER,
 ];
 
 type GithubProfile = { id: number; login: string; name?: string | null; email?: string | null };
+type NotionBot = {
+  bot?: { owner?: { user?: { id: string; name?: string | null; person?: { email?: string } } } };
+};
 type GoogleProfile = {
   sub: string;
   email: string;
@@ -259,6 +272,45 @@ export function createAuth(
       ? [
           googleConnection(env, GOOGLE_CALENDAR_PROVIDER, GOOGLE_CALENDAR_SCOPES),
           googleConnection(env, GMAIL_PROVIDER, GMAIL_SCOPES),
+        ]
+      : []),
+    // The Notion Connection (ADR 0037) has its own public integration, whose redirect URI is
+    // <BETTER_AUTH_URL>/api/auth/callback/notion. Notion has no scopes (an integration's
+    // capabilities are set in its settings) and no PKCE, wants the client's id and secret as HTTP
+    // Basic on the token endpoint, and takes `owner=user` to authorize as the signed-in user.
+    ...(env.NOTION_CLIENT_ID && env.NOTION_CLIENT_SECRET
+      ? [
+          {
+            providerId: NOTION_PROVIDER,
+            clientId: env.NOTION_CLIENT_ID,
+            clientSecret: env.NOTION_CLIENT_SECRET,
+            authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
+            tokenUrl: "https://api.notion.com/v1/oauth/token",
+            authentication: "basic" as const,
+            authorizationUrlParams: { owner: "user" } as Record<string, string>,
+            disableSignUp: true,
+            // The account is the Notion user who authorized. Notion shares an email only when the
+            // integration may read user information, and a link needs none.
+            getUserInfo: async (tokens: { accessToken?: string }) => {
+              if (!tokens.accessToken) return null;
+              const response = await fetch("https://api.notion.com/v1/users/me", {
+                headers: {
+                  authorization: `Bearer ${tokens.accessToken}`,
+                  "notion-version": NOTION_VERSION,
+                },
+              });
+              if (!response.ok) return null;
+              const profile = (await response.json()) as NotionBot;
+              const owner = profile.bot?.owner?.user;
+              if (!owner) return null;
+              return {
+                id: owner.id,
+                name: owner.name || "Notion",
+                email: owner.person?.email ?? `${owner.id}@users.notion.invalid`,
+                emailVerified: true,
+              };
+            },
+          },
         ]
       : []),
   ];

@@ -3,6 +3,7 @@ import type { ConnectionHook, McpConnection } from "@botsdk/mcp";
 
 import { gmailTools } from "./gmail";
 import { googleCalendarTools } from "./google-calendar";
+import { notionTools } from "./notion";
 
 // GitHub's remote MCP server tools (github/github-mcp-server, its `readOnlyHint: true` tools of the
 // notifications, issues, pull_requests and repos toolsets). A read needs no approval.
@@ -49,15 +50,21 @@ const calendarReadTools = ["list_calendars", "list_events"];
 // The Gmail tools that only read: no approval, and a read-only run may call them.
 const gmailReadTools = ["search_threads", "get_thread"];
 
+// The Notion tools that only read: no approval, and a read-only run may call them.
+const notionReadTools = ["search", "get_page", "query_database"];
+
 /**
- * The Connections the Host declares (ADR 0037), each when the sign-in client it reuses is set:
- * GitHub on the GitHub OAuth App, Google Calendar and Gmail on the Google client.
+ * The Connections the Host declares (ADR 0037), each when the client it uses is set: GitHub on the
+ * GitHub OAuth App, Google Calendar and Gmail on the Google client, Notion on its own public
+ * integration.
  */
 export function connectionsOf(env: {
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  NOTION_CLIENT_ID?: string;
+  NOTION_CLIENT_SECRET?: string;
 }): McpConnection[] {
   return [
     ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
@@ -88,6 +95,17 @@ export function connectionsOf(env: {
             tools: gmailTools(),
             approvalFree: gmailReadTools,
             readOnlyTools: gmailReadTools,
+          },
+        ]
+      : []),
+    ...(env.NOTION_CLIENT_ID && env.NOTION_CLIENT_SECRET
+      ? [
+          {
+            key: "notion",
+            name: "Notion",
+            tools: notionTools(),
+            approvalFree: notionReadTools,
+            readOnlyTools: notionReadTools,
           },
         ]
       : []),

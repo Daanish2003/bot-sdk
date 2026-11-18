@@ -28,6 +28,8 @@ export const serverEnv = {
   GITHUB_CLIENT_SECRET: "e2e-github-client-secret-not-for-production",
   GOOGLE_CLIENT_ID: "e2e-google-client-id.apps.googleusercontent.com",
   GOOGLE_CLIENT_SECRET: "e2e-google-client-secret-not-for-production",
+  NOTION_CLIENT_ID: "e2e-notion-client-id",
+  NOTION_CLIENT_SECRET: "e2e-notion-client-secret-not-for-production",
   // The fake page `fetch_url` reads is served by the fake Ollama host, on localhost (see fake-ollama.ts).
   SSRF_ALLOW_HOSTS: `localhost:${fakeOllamaPort}`,
   // The Host's own Models (ADR 0007): the fake Ollama host is the Host's Provider, so a user with no

@@ -3,6 +3,7 @@ import {
   GITHUB_CONNECTION_PROVIDER,
   GMAIL_PROVIDER,
   GOOGLE_CALENDAR_PROVIDER,
+  NOTION_PROVIDER,
 } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { linkedAccessToken } from "@ai-chat/auth/linked-token";
@@ -54,6 +55,8 @@ export const auth = createAuth(
     GITHUB_CLIENT_SECRET: ENV.GITHUB_CLIENT_SECRET ?? "",
     GOOGLE_CLIENT_ID: ENV.GOOGLE_CLIENT_ID ?? "",
     GOOGLE_CLIENT_SECRET: ENV.GOOGLE_CLIENT_SECRET ?? "",
+    NOTION_CLIENT_ID: ENV.NOTION_CLIENT_ID,
+    NOTION_CLIENT_SECRET: ENV.NOTION_CLIENT_SECRET,
     CHATGPT_CLIENT_ID: ENV.CHATGPT_CLIENT_ID,
     CHATGPT_HOST_ID: ENV.CHATGPT_HOST_ID,
   },
@@ -93,6 +96,8 @@ export const sdk = (shared.botSdk ??= createBotSdk({
         GITHUB_CLIENT_SECRET: ENV.GITHUB_CLIENT_SECRET,
         GOOGLE_CLIENT_ID: ENV.GOOGLE_CLIENT_ID,
         GOOGLE_CLIENT_SECRET: ENV.GOOGLE_CLIENT_SECRET,
+        NOTION_CLIENT_ID: ENV.NOTION_CLIENT_ID,
+        NOTION_CLIENT_SECRET: ENV.NOTION_CLIENT_SECRET,
       }),
       connection: connectionHookOf({
         github: cachedTokenFor((userId) =>
@@ -102,6 +107,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
           linkedAccessToken(auth, db, userId, GOOGLE_CALENDAR_PROVIDER),
         ),
         gmail: cachedTokenFor((userId) => linkedAccessToken(auth, db, userId, GMAIL_PROVIDER)),
+        notion: cachedTokenFor((userId) => linkedAccessToken(auth, db, userId, NOTION_PROVIDER)),
       }),
     }),
   ],

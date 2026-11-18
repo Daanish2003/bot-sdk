@@ -38,6 +38,23 @@ describe("disconnecting a Connection", () => {
     expect(unlinked).toEqual(["a2"]);
   });
 
+  it("unlinks Notion and no other account", async () => {
+    const unlinked: string[] = [];
+
+    await unlinkConnection(
+      [
+        { id: "a1", providerId: "github" },
+        { id: "a2", providerId: "notion" },
+      ],
+      "notion",
+      async (id) => {
+        unlinked.push(id);
+      },
+    );
+
+    expect(unlinked).toEqual(["a2"]);
+  });
+
   it("does nothing for a key the Host doesn't declare", async () => {
     await unlinkConnection([{ id: "a1", providerId: "github-connection" }], "outlook", async () => {
       throw new Error("should not unlink");

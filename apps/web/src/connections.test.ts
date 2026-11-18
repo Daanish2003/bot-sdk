@@ -132,6 +132,50 @@ describe("the Gmail Connection", () => {
   });
 });
 
+describe("the Notion Connection", () => {
+  const notion = { NOTION_CLIENT_ID: "id", NOTION_CLIENT_SECRET: "s" };
+  const find = (env: Parameters<typeof connectionsOf>[0]) =>
+    connectionsOf(env).find((connection) => connection.key === "notion");
+
+  it("is declared, with the Host's Notion tools, when the Notion client id and secret are set", () => {
+    expect(find(notion)).toMatchObject({ key: "notion", name: "Notion" });
+    expect(find(notion)?.mcp).toBeUndefined();
+    expect(find(notion)?.tools?.map((tool) => tool.name)).toEqual([
+      "search",
+      "get_page",
+      "query_database",
+      "create_page",
+      "append_to_page",
+      "add_comment",
+    ]);
+  });
+
+  it("reads without approval or a write, and asks approval for every write", () => {
+    const reads = ["search", "get_page", "query_database"];
+    expect(find(notion)?.approvalFree).toEqual(reads);
+    expect(find(notion)?.readOnlyTools).toEqual(reads);
+  });
+
+  it.each([
+    ["neither is set", {}],
+    ["only the id is set", { NOTION_CLIENT_ID: "id" }],
+    ["only the secret is set", { NOTION_CLIENT_SECRET: "s" }],
+    ["both are empty", { NOTION_CLIENT_ID: "", NOTION_CLIENT_SECRET: "" }],
+    // The Google and GitHub clients are no Notion client.
+    [
+      "only the other clients are set",
+      {
+        GOOGLE_CLIENT_ID: "g",
+        GOOGLE_CLIENT_SECRET: "s",
+        GITHUB_CLIENT_ID: "h",
+        GITHUB_CLIENT_SECRET: "s",
+      },
+    ],
+  ])("is not declared when %s", (_name, env) => {
+    expect(find(env)).toBeUndefined();
+  });
+});
+
 describe("the connection hook", () => {
   it("answers the access token", async () => {
     const hook = hookFor({ status: "ok", accessToken: "gho_token" });
