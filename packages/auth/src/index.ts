@@ -172,6 +172,7 @@ export function createAuth(
             // Only the account id matters for a link. GitHub's `email` is null for a private
             // address, and a link needs none, so a noreply one stands in.
             getUserInfo: async (tokens: { accessToken?: string }) => {
+              if (!tokens.accessToken) return null;
               const response = await fetch("https://api.github.com/user", {
                 headers: {
                   authorization: `Bearer ${tokens.accessToken}`,
