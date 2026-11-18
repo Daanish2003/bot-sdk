@@ -77,7 +77,7 @@ A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and
 _Avoid_: MCP tool, integration tool
 
 **Approval**:
-A user's yes or no to one tool call before it runs, to a new Routine, to a Custom Rule a Bot proposes, to a Release a Bot drafted, or to a Published fact a Bot proposes. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for 15 seconds, then stays pending while the Bot carries on. A later yes runs the call exactly as it was asked and wakes the Bot with its result; a later no wakes it too. A pending Approval expires after 7 days, and deleting a Customer denies one from a Turn wholly on their Assignment. A browser or desktop action on a Screen waits only the 15 seconds, and there silence counts as no. A Release's Approval is answered only on the Representative's page, where the diff is: its card in the Conversation is a link, no Channel offers an answer, and when it expires the draft stays and can still be approved there. A Published fact's Approval is answered only on the Facts page, where the current and proposed values are side by side: its card is a link too, no Channel offers an answer, and when it expires the proposal can no longer change the fact.
+A user's yes or no to one tool call before it runs, to a new Routine, or to a Custom Rule a Bot proposes. A Bot asks for one for a tool call only when Auto-review blocks it: the call waits inside its Turn for 15 seconds, then stays pending while the Bot carries on. A later yes runs the call exactly as it was asked and wakes the Bot with its result; a later no wakes it too. A pending Approval expires after 7 days. A browser or desktop action on a Screen waits only the 15 seconds, and there silence counts as no.
 _Avoid_: Confirmation, consent, permission
 
 **Attachment**:
@@ -166,92 +166,8 @@ _Avoid_: Reminder, Routine (that is a prompt the user approved)
 An agent a Bot hands one complete task to, which works in its own fresh context, keeps going after the Turn that started it, and reports back briefly. It belongs to its Bot and is never a Bot itself. A General Helper works with the shell, files and web search; a Computer-use Helper works a Screen's browser and desktop, needs a model that can use a computer, and a Bot has at most one of those at a time. A Coding-agent Helper is a coding-agent program the user has set up on the Computer, such as Claude Code, Codex or Gemini CLI: it runs its own model and tools, every action that does more than look passes Auto-review, and it runs on the user's plan sign-in only in a Turn the user's own Message woke, otherwise on their Provider credentials or not at all. The user's Stop ends the Turn, not its Helpers; its report wakes the Bot as a Trigger like any other.
 _Avoid_: Sub-agent, worker, child agent
 
-**Representative**:
-An agent that speaks for one user's business to its Customers and reports to one of that user's Bots, or to the user once that Bot is deleted. A Bot drafts it or the user creates it, and it serves Customers only once the user approves a Release of it. It has no Computer and no Conversation with the user, and it is never a Bot or a Helper.
-_Avoid_: Deployed agent, front desk, CSR, Agent
-
-**Release**:
-One unchangeable version of a Representative that the user approved: what it's told to do, its tools, its documents and its tests. The user can go back to any earlier Release in one step. Published facts stay outside it and change live.
-_Avoid_: Version, deployment, publish
-
-**Document snapshot**:
-The documents a Release holds whole in a Representative's prompt, copied as text into the database when the user chooses each one for a draft, then frozen and hashed at approval. It is a published copy: changing a Knowledge file later changes nothing in it, and a Bot goes on working on the files, which stay the source of truth for Bots. A Release's documents hold at most 100,000 characters, and a draft past that can't be approved.
-_Avoid_: Knowledge, excerpt, embedding
-
-**Published fact**:
-One typed piece of business information a Representative can state, such as a price or opening hours, quoted exactly and never reworded. It has a key (unique to the user), a type (text, money, hours, phone or url, each value checked against it), a topic and optional valid dates, outside which it is not in effect. Every Representative of the user shares them. It changes live, each add, edit and delete goes in a log with the old value, the new value and the time, and a change a Bot proposes, or a Lesson, needs the user's Approval.
-_Avoid_: Knowledge, FAQ
-
-**Gap**:
-A question a Representative could not confirm from any source, which it logs for the user after telling the Customer plainly that it can't confirm and offering a hand-off. It belongs to the user, records which Representative first logged it, and counts how often the same question (compared without case, spacing or punctuation) comes up. The user dismisses it or turns it into a Published fact, and either closes it: the same question asked again starts a new Gap. The Model wrote its wording, so only the user sees it, as plain text. A test conversation logs none.
-_Avoid_: Unanswered question, missing answer, ticket
-
-**Customer thread**:
-The one running exchange between a Customer and a Representative across Channels, held either by the Representative or by the user who took it over. It runs one Turn at a time: a message that arrives during a Turn waits for the next one, and quick messages batch into one Turn. While the Representative holds it, it closes when idle, and a later message starts a new one. Taking over aborts the running Turn and sends the Customer one fixed note, and no model call runs until the user hands it back, which is always explicit. A thread the user holds never closes by itself.
-_Avoid_: Conversation, ticket, case
-
-**Outbound gate**:
-The one set of checks every message to a Customer passes, which decides whether it's sent, held or dropped.
-_Avoid_: Filter, guardrail, moderation
-
-**Decision**:
-What the Outbound gate logged for one message: sent, held or dropped, with the rule that decided and the Release in effect.
-_Avoid_: Verdict, audit entry
-
-**Held message**:
-A message the Outbound gate stored rather than sent, which isn't in its thread and hasn't reached the Customer.
-_Avoid_: Queued message, pending message
-
-**Limit note**:
-The one fixed message a Customer gets when a limit stops a Representative from answering their thread, with no model call: "Our team has your message and will reply". What they said stays owed. Once the limit lifts, what is under 24 hours old gets a Turn and what is older is left for the owner.
-_Avoid_: Quota message, drop notice
-
-**Reply draft**:
-A Representative's reply the Outbound gate held because its topic isn't one the user lets go out by itself. It waits for the user to approve, edit or reject it, and the Customer gets one fixed holding note meanwhile. A new Customer message replaces it, so what is out of date can't be approved. It isn't a Release's working draft.
-_Avoid_: Pending reply, suggestion
-
-**Topic**:
-A subject of the user's business that a Representative labels each reply with. Each is `draft` or `auto`, all start at `draft`, and a label the user doesn't have counts as `draft`.
-_Avoid_: Category, intent
-
-**Emergency script**:
-The fixed safety text in a Release, sent word for word with no model call when a Customer says one of that Release's keywords or a Representative flags an emergency. It skips drafts, caps, quiet hours, the user's hold on the thread and a switched-off Representative, reaches an opted-out Customer, and Pages the user at once. Only a blocked Customer gets nothing.
-_Avoid_: Crisis message, safety reply
-
-**Page**:
-A direct alert that reaches the user outside the app when something needs them, such as an emergency or a stalled Assignment. It goes to web push and their Linked identities, then to email if nobody has acknowledged it, and acknowledging stops whatever is left.
-_Avoid_: Notification, ticket, alert
-
-**Customer**:
-A person who deals with a user's business through a Representative. A Customer isn't a user and never signs in to the app, and belongs to that one user's business.
-_Avoid_: Contact, end user, client
-
-**Customer memory**:
-What a user's business remembers of a Customer, across that user's Representatives and never beyond them: rows in Postgres, written by a pass after a Customer thread closes or by the user, never by a Representative during a Turn. It is not a Bot's Memory, which is files on its Computer.
-_Avoid_: CRM
-
-**Customer profile**:
-A Customer's typed details, kept in the database: the fixed fields (name, language, preferred Channel, address) plus fields the user defines for all their Customers. Each value has a source, a date and a status: `confirmed` if the user set it or a verified Customer said it, otherwise `claimed`. It's a Bot's **Profile** only in name, which is a file about the user.
-_Avoid_: Profile, on its own
-
-**Lesson**:
-A Published fact the Customer memory pass proposes after a closed Customer thread, with no identity in it: code refuses a phone or email shape and any known value of the thread's Customer. It reaches the user as an Approval on the Facts page only, with no Bot and no card in a Bot's Conversation, and answering it wakes no one. It never records which Customer or thread it came from. If approved it becomes a Published fact, logged as proposed by the pass.
-_Avoid_: Insight
-
-**Customer summary**:
-The one summary of a closed Customer thread, part of Customer memory, linked to that thread's transcript. It finds its Customer through its thread, so it follows a Customer merge. Written once. A thread held by the user or waiting on a code hand-off has none, nor does one closed for holding two people's words when a merge was undone, nor one a deleted Customer's messages were taken from. When the pass can't write one, such as for a Release that names no Model, the skip is recorded.
-_Avoid_: Summary (a Conversation's), thread summary
-
-**Customer merge**:
-Making two Customers one, which happens only when a sender passes a code sent to an identity on the other's record, or when the user does it by hand. The absorbed Customer's identities and threads move to the other, and where both have an open thread with a Representative, the absorbed one's closes. It is recorded, verifies nobody, and the user can undo it: each identity goes back, and a closed thread stays closed. Customer memory doesn't move: the survivor reads both profiles as one, summaries follow their threads, and a hand-off's Customer moves with the merge and back with its undo.
-_Avoid_: Link, dedupe
-
-**Verified identity**:
-One of a Customer's identities whose sender passed its Channel's rule, within the last 90 days of contact. On a Channel whose rule is a code or a signed link, each pass vouches for its messages for an hour. A lapsed identity verifies again by a fresh enforcing DMARC pass on email, otherwise only by a code to another identity on record. A message whose sender isn't verified gets a prompt holding only what that identity said while unverified: nothing from the Customer's other identities, their memory or the identity's verified past.
-_Avoid_: Trusted, authenticated Customer
-
 **Assignment**:
-One piece of work handed to a Bot by a Representative or another Bot, with a status and a budget, and a log the user can read. It can be split into child Assignments, which block it while open; a chain stops at 3 deep.
+One piece of work handed to a Bot by a feature or another Bot, with a status and a budget, and a log the user can read. It can be split into child Assignments, which block it while open; a chain stops at 3 deep.
 _Avoid_: Tracked task, task, ticket, work order
 
 **Tasks view**:
@@ -303,16 +219,8 @@ Anything that sends to a Bot or shows what it sends: the user's apps (web, deskt
 _Avoid_: App, surface, client, platform
 
 **Channel account**:
-The bot one Bot or one Representative is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to its holder. It has exactly one holder, so each Bot is its own contact there, and one Representative can hold several. A Representative's voice account is a Channel account that holds a phone number for Calls and the secret its Voice agent presents; it pairs with an SMS account on the same number.
+The bot one Bot is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to the Bot. It belongs to that one Bot only, so each Bot is its own contact there.
 _Avoid_: Connection (that is an MCP sign-in), integration, bot token
-
-**Call**:
-A Customer phoning a Representative's number. A Voice agent holds it and talks, following the current Release and published facts, so what is said on a Call never passes the outbound gate. The caller is always unverified, and is the same Customer as the SMS Customer with that number. When the Call ends, its transcript joins the Customer's thread as one entry and the Representative reviews it, flags what went wrong and follows up by text.
-_Avoid_: Voice session, phone chat
-
-**Voice agent**:
-The program at a voice vendor, outside the product, that holds a Call and runs the conversation with its own model. The user runs it; the product only tells it what to say at the start of each Call and hears what happened.
-_Avoid_: Agent, call bot, voice gateway
 
 **Linked identity**:
 The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered.

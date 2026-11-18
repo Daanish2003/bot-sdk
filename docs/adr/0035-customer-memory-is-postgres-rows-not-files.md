@@ -1,8 +1,10 @@
 ---
-Status: accepted
+Status: superseded
 ---
 
 # Customer memory is Postgres rows, not files
+
+_Superseded 2026-11-18: the Representative feature was removed (spec [#1167](https://github.com/Daanish2003/bot-sdk/issues/1167)), so this decision no longer applies._
 
 Decided in [Customer memory: fields, expiry and deletion](https://github.com/Daanish2003/bot-sdk/issues/1158), and approved in [spec #1170](https://github.com/Daanish2003/bot-sdk/issues/1170).
 
