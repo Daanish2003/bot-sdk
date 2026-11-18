@@ -308,6 +308,15 @@ describe("the Notion tools", () => {
     expect(result).toEqual({ id: "p3", url: "https://n/p3" });
   });
 
+  it("create_page refuses properties under a page, which has only a title", async () => {
+    const { sent, tools } = fakeNotion(() => json({}));
+
+    await expect(
+      run(tools.create_page, { parentPageId: "pp1", title: "x", properties: { A: {} } }),
+    ).rejects.toThrow("only a title");
+    expect(sent).toEqual([]);
+  });
+
   it("create_page needs exactly one parent", async () => {
     const { sent, tools } = fakeNotion(() => json({}));
 

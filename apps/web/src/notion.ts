@@ -68,19 +68,19 @@ function propertyText(property: NotionProperty): string {
     case "status":
       return (value as { name?: string } | null)?.name ?? "";
     case "multi_select":
-      return (value as { name: string }[]).map((each) => each.name).join(", ");
+      return ((value ?? []) as { name: string }[]).map((each) => each.name).join(", ");
     case "people":
-      return (value as { id: string; name?: string }[])
+      return ((value ?? []) as { id: string; name?: string }[])
         .map((each) => each.name ?? each.id)
         .join(", ");
     case "relation":
-      return (value as { id: string }[]).map((each) => each.id).join(", ");
+      return ((value ?? []) as { id: string }[]).map((each) => each.id).join(", ");
     case "date": {
       const date = value as { start: string; end?: string | null } | null;
       return date ? (date.end ? `${date.start} to ${date.end}` : date.start) : "";
     }
     case "files":
-      return (value as { name: string }[]).map((each) => each.name).join(", ");
+      return ((value ?? []) as { name: string }[]).map((each) => each.name).join(", ");
     case "formula":
     case "rollup":
       return value && typeof value === "object" && "type" in value
@@ -256,12 +256,17 @@ export function notionTools(fetch: typeof globalThis.fetch = globalThis.fetch): 
         title: z.string(),
         properties: z.record(z.string(), z.string()),
         content: z.string(),
+        truncated: z
+          .boolean()
+          .optional()
+          .meta({ description: "True when the page is longer than what `content` holds." }),
       }),
       execute: async (input, { accessToken, signal }) => {
         const id = encodeURIComponent(input.pageId);
         const page = (await call(accessToken, `/pages/${id}`, { signal })) as NotionObject;
         const lines: string[] = [];
         let next: string | undefined;
+        let truncated = false;
         for (let request = 0; request < maxBlockRequests; request++) {
           const blocks = (await call(
             accessToken,
@@ -274,6 +279,7 @@ export function notionTools(fetch: typeof globalThis.fetch = globalThis.fetch): 
           }
           if (!blocks.has_more || !blocks.next_cursor) break;
           next = blocks.next_cursor;
+          truncated = request === maxBlockRequests - 1;
         }
         return {
           id: page.id,
@@ -281,6 +287,7 @@ export function notionTools(fetch: typeof globalThis.fetch = globalThis.fetch): 
           title: titleOf(page),
           properties: propertiesText(page.properties),
           content: lines.join("\n"),
+          ...(truncated ? { truncated } : {}),
         };
       },
     },
@@ -359,6 +366,9 @@ export function notionTools(fetch: typeof globalThis.fetch = globalThis.fetch): 
         let parent: unknown;
         let properties: Record<string, unknown>;
         if (input.parentPageId) {
+          if (input.properties) {
+            throw new Error("A page under a page has only a title: leave `properties` out.");
+          }
           parent = { type: "page_id", page_id: input.parentPageId };
           properties = { title: { title: richText(input.title) } };
         } else {
