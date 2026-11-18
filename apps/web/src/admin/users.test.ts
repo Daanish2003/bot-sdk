@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type AdminUser, formatUsd, selectUsers, windowStart } from "./users";
+import { type AdminUser, formatUsd, selectUsers, signInMethodsOf, windowStart } from "./users";
 
 function user(fields: Partial<AdminUser> & { email: string }): AdminUser {
   return {
@@ -64,5 +64,22 @@ describe("formatUsd", () => {
     expect(formatUsd(0)).toBe("$0.00");
     expect(formatUsd(1_234_567)).toBe("$1.23");
     expect(formatUsd(2_000_000)).toBe("$2.00");
+  });
+});
+
+describe("signInMethodsOf", () => {
+  it("names each way to sign in, and leaves out ChatGPT's and the Connections' links", () => {
+    expect(
+      signInMethodsOf([
+        "credential",
+        "github",
+        "github-connection",
+        "google",
+        "google-calendar",
+        "gmail",
+        "notion",
+        "chatgpt",
+      ]),
+    ).toEqual(["Password", "GitHub", "Google"]);
   });
 });

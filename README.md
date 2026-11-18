@@ -47,6 +47,34 @@ Open [http://localhost:3001](http://localhost:3001) in your browser to see the f
 
 To connect a ChatGPT plan (optional), set `CHATGPT_CLIENT_ID` and `CHATGPT_HOST_ID` in `apps/web/.env` and keep `BETTER_AUTH_URL=http://localhost:3001`. ChatGPT's redirect lands on `http://127.0.0.1:3001/auth/callback` and bounces back to `localhost`, where the session cookie lives.
 
+To offer the GitHub Connection (a Bot using GitHub's tools through GitHub's remote MCP server, ADR 0037), set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` (the same OAuth App as "Continue with GitHub") and set that OAuth App's callback URL to the app's `/api/auth/` base, for example `http://localhost:3001/api/auth/`. GitHub accepts any path under the callback URL, so one App serves both the sign-in (`/api/auth/callback/github`) and the Connection (`/api/auth/callback/github-connection`). Connect GitHub on Settings, Keys; it asks for the `repo`, `notifications` and `read:org` scopes, which a later GitHub sign-in keeps too.
+
+To offer the Google Calendar Connection (a Bot listing calendars and events, creating and updating events and answering invites, through tools apps/web wrote over the Calendar API), set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (the same OAuth client as "Continue with Google"). Then, once, in that client's Google Cloud project:
+
+1. **Enable the Google Calendar API** (APIs & Services, Library).
+2. **Add the link's redirect URI** to the OAuth client's authorized redirect URIs: `<BETTER_AUTH_URL>/api/auth/callback/google-calendar`, for example `http://localhost:3001/api/auth/callback/google-calendar`.
+3. **Add the scopes to the consent screen** (Data access): `https://www.googleapis.com/auth/calendar.events` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly`.
+4. **Publish the app** (Audience): set the publishing status to _In production_, and leave it unverified under the personal-use exemption, accepting the "Google hasn't verified this app" warning when you connect. In _Testing_, Google expires the refresh token after 7 days. If the console refuses to publish, stay in Testing (with your account as a test user) and reconnect every 7 days.
+
+Connect Google Calendar on Settings, Keys, with any Google account, which may differ from the one you sign in with. The link asks Google for a refresh token (`access_type=offline`, `prompt=consent`), so it keeps working past the hour its access token lasts.
+
+To offer the Gmail Connection (a Bot searching and reading threads, creating and sending drafts and archiving threads, through tools apps/web wrote over the Gmail API), set the same `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and in the same Google Cloud project, once:
+
+1. **Enable the Gmail API** (APIs & Services, Library).
+2. **Add the link's redirect URI** to the OAuth client's authorized redirect URIs: `<BETTER_AUTH_URL>/api/auth/callback/gmail`, for example `http://localhost:3001/api/auth/callback/gmail`.
+3. **Add the scope to the consent screen** (Data access): `https://www.googleapis.com/auth/gmail.modify`. It is a restricted scope: as with Calendar, leave the app unverified under the personal-use exemption, and publish the app as step 4 of the Calendar setup says.
+
+Connect Gmail on Settings, Keys, separately from Google Calendar: each has its own account row, so either can be disconnected alone. It asks Google for a refresh token like the Calendar link does.
+
+To offer the Notion Connection (a Bot searching and reading pages, querying databases, creating pages, adding text and comments, through tools apps/web wrote over Notion's REST API), set `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`. Unlike GitHub, Google Calendar and Gmail, it has its own client, once:
+
+1. **Create a public integration** at <https://www.notion.so/profile/integrations> (type: Public; Notion asks for a company name, a website and privacy and terms links).
+2. **Add the redirect URI** `<BETTER_AUTH_URL>/api/auth/callback/notion`, for example `http://localhost:3001/api/auth/callback/notion`.
+3. **Set its capabilities**: read content, update content and insert comments. Notion has no scopes: these capabilities are what the integration may do, and the user chooses which pages to share when they connect.
+4. Copy the integration's OAuth client ID and secret into `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`.
+
+Connect Notion on Settings, Keys. Notion gives the integration only the pages the user picked in its consent screen; to share more, Connect again.
+
 ## Testing
 
 Vitest runs every package's tests from the root config (`vitest.config.ts`):

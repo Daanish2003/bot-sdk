@@ -28,7 +28,7 @@ function renderKeys() {
   queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
   queryClient.setQueryData(client.orpc.models.imageModel.queryKey(), { imageModel: null });
   queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), [
-    { key: "tracker", name: "E2E Tracker", state: "disconnected", scopes: [] },
+    { key: "tracker", name: "E2E Tracker", state: "disconnected" },
   ]);
   return renderToStaticMarkup(
     createElement(BotSdkProvider, {

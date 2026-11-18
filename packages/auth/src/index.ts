@@ -11,6 +11,22 @@ import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/admin/access";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 
+import {
+  CHATGPT_PROVIDER,
+  GITHUB_CONNECTION_PROVIDER,
+  GMAIL_PROVIDER,
+  GOOGLE_CALENDAR_PROVIDER,
+  LINK_ONLY_PROVIDERS,
+  NOTION_PROVIDER,
+} from "./providers";
+
+export {
+  GITHUB_CONNECTION_PROVIDER,
+  GMAIL_PROVIDER,
+  GOOGLE_CALENDAR_PROVIDER,
+  NOTION_PROVIDER,
+} from "./providers";
+
 // The Admin role holds only what the Admin view needs (spec #277). Impersonation, role changes
 // (`admin:grant` is the only way), password and email changes and user deletion are left out, so the
 // plugin's endpoints for them refuse every role, Admins included. `user` gets no admin permissions.
@@ -33,6 +49,10 @@ export type AuthConfig = {
   // `ext_agent_host_id` it was registered under (ADR 0023).
   CHATGPT_CLIENT_ID?: string;
   CHATGPT_HOST_ID?: string;
+  // The Notion Connection is registered only when both are set: a Notion public integration's
+  // OAuth client id and secret.
+  NOTION_CLIENT_ID?: string;
+  NOTION_CLIENT_SECRET?: string;
 };
 
 // ChatGPT sign-in endpoints, scopes and audience (spec #638).
@@ -43,8 +63,73 @@ function chatgptOrigin(baseUrl: string): string {
   return url.origin;
 }
 
-const CHATGPT_PROVIDER = "chatgpt";
 const CHATGPT_RESOURCE = "https://api.openai.com/v1";
+
+// What the Connection asks of GitHub, beyond the sign-in's own scopes. The OAuth App is the sign-in's.
+const GITHUB_CONNECTION_SCOPES = ["repo", "notifications", "read:org"];
+
+const GOOGLE_CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+];
+
+const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"];
+
+// The version Notion's API is asked for (https://developers.notion.com/reference/versioning).
+const NOTION_VERSION = "2026-03-11";
+
+type GithubProfile = { id: number; login: string; name?: string | null; email?: string | null };
+type NotionBot = {
+  bot?: { owner?: { user?: { id: string; name?: string | null; person?: { email?: string } } } };
+};
+type GoogleProfile = {
+  sub: string;
+  email: string;
+  email_verified?: boolean;
+  name?: string;
+  picture?: string;
+};
+
+/**
+ * A Google Connection's link-only provider (ADR 0037) on the Google sign-in's client. `openid` and
+ * `email` name the linked account; `access_type=offline` with `prompt=consent` makes Google hand
+ * out a refresh token on every link, a Reconnect included. The callback is the default,
+ * `/api/auth/callback/<providerId>`, which the client must list as a redirect URI.
+ */
+function googleConnection(
+  env: Pick<AuthConfig, "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET">,
+  providerId: string,
+  scopes: string[],
+) {
+  return {
+    providerId,
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    scopes: ["openid", "email", ...scopes],
+    accessType: "offline",
+    prompt: "consent" as const,
+    pkce: true,
+    disableSignUp: true,
+    // Google's userinfo names the account `sub`, where Better Auth reads `id`.
+    getUserInfo: async (tokens: { accessToken?: string }) => {
+      if (!tokens.accessToken) return null;
+      const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+        headers: { authorization: `Bearer ${tokens.accessToken}` },
+      });
+      if (!response.ok) return null;
+      const profile = (await response.json()) as GoogleProfile;
+      return {
+        id: profile.sub,
+        name: profile.name || profile.email,
+        email: profile.email,
+        emailVerified: profile.email_verified === true,
+        image: profile.picture,
+      };
+    },
+  };
+}
 
 // Social sign-in. Better Auth links to an existing account only when the provider reports the email
 // as verified (its default); neither provider is in `trustedProviders`, so an unverified provider
@@ -113,39 +198,122 @@ export function createAuth(
       );
   }
 
-  const chatgpt =
-    env.CHATGPT_CLIENT_ID && env.CHATGPT_HOST_ID
-      ? genericOAuth({
-          config: [
-            {
-              providerId: CHATGPT_PROVIDER,
-              clientId: env.CHATGPT_CLIENT_ID,
-              authorizationUrl: "https://auth.openai.com/api/accounts/authorize",
-              tokenUrl: "https://auth.openai.com/api/accounts/oauth/token",
-              scopes: [
-                "openid",
-                "profile",
-                "email",
-                "offline_access",
-                "resource.invoke",
-                "chatgpt.tokens.use.direct",
-              ],
-              pkce: true,
-              // The client is registered with the 127.0.0.1 form of the app's origin; apps/web's
-              // `/auth/callback` bounces it back to `/api/auth/callback/chatgpt` on BETTER_AUTH_URL.
-              redirectURI: `${chatgptOrigin(env.BETTER_AUTH_URL)}/auth/callback`,
-              // Link-only (the `hooks.before` below also refuses sign-in): no user is ever created.
-              disableSignUp: true,
-              authorizationUrlParams: {
-                resource: CHATGPT_RESOURCE,
-                ext_agent_host_id: env.CHATGPT_HOST_ID,
-              },
-              tokenUrlParams: { resource: CHATGPT_RESOURCE },
-              refreshTokenParams: { resource: CHATGPT_RESOURCE },
+  // The link-only providers (ChatGPT and the Connections) share one `genericOAuth` plugin: a
+  // second one would repeat its id.
+  const linkOnly = [
+    ...(env.CHATGPT_CLIENT_ID && env.CHATGPT_HOST_ID
+      ? [
+          {
+            providerId: CHATGPT_PROVIDER,
+            clientId: env.CHATGPT_CLIENT_ID,
+            authorizationUrl: "https://auth.openai.com/api/accounts/authorize",
+            tokenUrl: "https://auth.openai.com/api/accounts/oauth/token",
+            scopes: [
+              "openid",
+              "profile",
+              "email",
+              "offline_access",
+              "resource.invoke",
+              "chatgpt.tokens.use.direct",
+            ],
+            pkce: true,
+            // The client is registered with the 127.0.0.1 form of the app's origin; apps/web's
+            // `/auth/callback` bounces it back to `/api/auth/callback/chatgpt` on BETTER_AUTH_URL.
+            redirectURI: `${chatgptOrigin(env.BETTER_AUTH_URL)}/auth/callback`,
+            // Link-only (the `hooks.before` below also refuses sign-in): no user is ever created.
+            disableSignUp: true,
+            authorizationUrlParams: {
+              resource: CHATGPT_RESOURCE,
+              ext_agent_host_id: env.CHATGPT_HOST_ID,
             },
-          ],
-        })
-      : undefined;
+            tokenUrlParams: { resource: CHATGPT_RESOURCE },
+            refreshTokenParams: { resource: CHATGPT_RESOURCE },
+          },
+        ]
+      : []),
+    // The GitHub Connection (ADR 0037) reuses the sign-in OAuth App, so it is on when the sign-in's
+    // client is set. Better Auth's own GitHub provider has one id, so this is a generic one.
+    ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+      ? [
+          {
+            providerId: GITHUB_CONNECTION_PROVIDER,
+            clientId: env.GITHUB_CLIENT_ID,
+            clientSecret: env.GITHUB_CLIENT_SECRET,
+            authorizationUrl: "https://github.com/login/oauth/authorize",
+            tokenUrl: "https://github.com/login/oauth/access_token",
+            scopes: GITHUB_CONNECTION_SCOPES,
+            // The default callback, /api/auth/callback/github-connection, sits under the /api/auth/
+            // base the OAuth App's callback URL is set to (GitHub accepts any subpath of it).
+            disableSignUp: true,
+            // Only the account id matters for a link. GitHub's `email` is null for a private
+            // address, and a link needs none, so a noreply one stands in.
+            getUserInfo: async (tokens: { accessToken?: string }) => {
+              if (!tokens.accessToken) return null;
+              const response = await fetch("https://api.github.com/user", {
+                headers: {
+                  authorization: `Bearer ${tokens.accessToken}`,
+                  "user-agent": "better-auth",
+                },
+              });
+              if (!response.ok) return null;
+              const profile = (await response.json()) as GithubProfile;
+              return {
+                id: String(profile.id),
+                name: profile.name || profile.login,
+                email: profile.email ?? `${profile.id}+${profile.login}@users.noreply.github.com`,
+                emailVerified: true,
+              };
+            },
+          },
+        ]
+      : []),
+    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? [
+          googleConnection(env, GOOGLE_CALENDAR_PROVIDER, GOOGLE_CALENDAR_SCOPES),
+          googleConnection(env, GMAIL_PROVIDER, GMAIL_SCOPES),
+        ]
+      : []),
+    // The Notion Connection (ADR 0037) has its own public integration, whose redirect URI is
+    // <BETTER_AUTH_URL>/api/auth/callback/notion. Notion has no scopes (an integration's
+    // capabilities are set in its settings) and no PKCE, wants the client's id and secret as HTTP
+    // Basic on the token endpoint, and takes `owner=user` to authorize as the signed-in user.
+    ...(env.NOTION_CLIENT_ID && env.NOTION_CLIENT_SECRET
+      ? [
+          {
+            providerId: NOTION_PROVIDER,
+            clientId: env.NOTION_CLIENT_ID,
+            clientSecret: env.NOTION_CLIENT_SECRET,
+            authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
+            tokenUrl: "https://api.notion.com/v1/oauth/token",
+            authentication: "basic" as const,
+            authorizationUrlParams: { owner: "user" } as Record<string, string>,
+            disableSignUp: true,
+            // The account is the Notion user who authorized. Notion shares an email only when the
+            // integration may read user information, and a link needs none.
+            getUserInfo: async (tokens: { accessToken?: string }) => {
+              if (!tokens.accessToken) return null;
+              const response = await fetch("https://api.notion.com/v1/users/me", {
+                headers: {
+                  authorization: `Bearer ${tokens.accessToken}`,
+                  "notion-version": NOTION_VERSION,
+                },
+              });
+              if (!response.ok) return null;
+              const profile = (await response.json()) as NotionBot;
+              const owner = profile.bot?.owner?.user;
+              if (!owner) return null;
+              return {
+                id: owner.id,
+                name: owner.name || "Notion",
+                email: owner.person?.email ?? `${owner.id}@users.notion.invalid`,
+                emailVerified: true,
+              };
+            },
+          },
+        ]
+      : []),
+  ];
+  const linkOnlyOAuth = linkOnly.length > 0 ? genericOAuth({ config: linkOnly }) : undefined;
 
   return betterAuth({
     database: drizzleAdapter(database, {
@@ -270,24 +438,31 @@ export function createAuth(
       },
     },
     hooks: {
-      // ChatGPT is link-only. `disableSignUp` alone would still sign in an existing user whose
-      // email matches, so every social sign-in for it is refused, the ID-token form included.
+      // ChatGPT and the Connections are link-only. `disableSignUp` alone would still sign in an
+      // existing user whose email matches, so every social sign-in for them is refused, the ID-token
+      // form included.
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path === "/sign-in/social" && ctx.body?.provider === CHATGPT_PROVIDER) {
+        if (
+          ctx.path === "/sign-in/social" &&
+          LINK_ONLY_PROVIDERS.includes(ctx.body?.provider as string)
+        ) {
           throw new APIError("BAD_REQUEST", {
-            message: "ChatGPT can only be linked, not signed in with",
+            message: "This account can only be linked, not signed in with",
           });
         }
-        // The link-only chatgpt row counts toward Better Auth's "last account" guard, so a user whose
-        // only sign-in method is GitHub could unlink it and be locked out. Unlinking chatgpt is always fine.
+        // A link-only row counts toward Better Auth's "last account" guard, so a user whose only
+        // sign-in method is GitHub could unlink it and be locked out. Unlinking a link-only row is always fine.
         if (ctx.path === "/unlink-account") {
           const session = await getSessionFromCtx(ctx);
           if (!session) return;
           const accounts = await ctx.context.internalAdapter.findAccounts(session.user.id);
           const target = accounts.find((linked) => linked.id === ctx.body?.accountId);
-          if (!target || target.providerId === CHATGPT_PROVIDER) return;
+          if (!target || LINK_ONLY_PROVIDERS.includes(target.providerId)) return;
           const left = accounts.filter((linked) => linked.id !== target.id);
-          if (left.length > 0 && left.every((linked) => linked.providerId === CHATGPT_PROVIDER)) {
+          if (
+            left.length > 0 &&
+            left.every((linked) => LINK_ONLY_PROVIDERS.includes(linked.providerId))
+          ) {
             throw APIError.from("BAD_REQUEST", BASE_ERROR_CODES.FAILED_TO_UNLINK_LAST_ACCOUNT);
           }
         }
@@ -376,7 +551,7 @@ export function createAuth(
       // Passkeys for password-free sign-in (spec #277). The relying party id defaults to the
       // hostname of `baseURL` (BETTER_AUTH_URL).
       passkey({ rpName: env.APP_NAME }),
-      ...(chatgpt ? [chatgpt] : []),
+      ...(linkOnlyOAuth ? [linkOnlyOAuth] : []),
       tanstackStartCookies(),
     ],
   });

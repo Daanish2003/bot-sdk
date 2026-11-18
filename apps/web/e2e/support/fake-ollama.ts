@@ -14,16 +14,6 @@ export const fetchedPageTitle = "Launch notes";
 export const fetchedPageText = "The launch date is 14 March.";
 
 /**
- * A Bot prompt with this marker makes the fake Model call `mcpToolName` (the e2e MCP server's
- * `create_issue`, under its Host key) through `run_tool`, as a Connector tool is called, then
- * send what the tool returned with `send_to_user`.
- */
-export const mcpMarker = "[mcp]";
-export const mcpToolName = "tracker_create_issue";
-/** The arguments the fake Model sends with that call. */
-export const mcpToolArguments = { title: "E2E launch" };
-
-/**
  * A Bot prompt with this marker makes the fake Model hand `assignmentTitle` to the Bot named
  * `assignedBotName` with `assign_work` (spec #1166), through `run_tool`, as a deferred tool is called.
  */
@@ -322,10 +312,6 @@ export function startFakeOllama(port: number): Promise<Server> {
                 ? longCodeReply
                 : botReply;
         calls(sendToUserToolName, { text: file ? fileReply(file) : reply, endTurn: true });
-        return;
-      }
-      if (stream && !answering && offers(runToolName) && prompt.includes(mcpMarker)) {
-        calls(runToolName, { name: mcpToolName, args: mcpToolArguments });
         return;
       }
       if (stream && !answering && offers(runToolName) && prompt.includes(assignMarker)) {

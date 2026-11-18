@@ -12,8 +12,8 @@ import {
   type TestClient,
 } from "@ai-chat/test-support/fake-dictionary";
 
-/** Text the dictionary doesn't translate: the server's name and the scopes it granted. */
-const ownedContent = ["GitHub", "repo", "Reply to emails from anyone @acme.com"];
+/** Text the dictionary doesn't translate: the Connection's name and the user's rule. */
+const ownedContent = ["GitHub", "Reply to emails from anyone @acme.com"];
 
 type Seed = (queryClient: QueryClient, client: TestClient) => void;
 
@@ -24,10 +24,12 @@ function expectTranslated(ui: ReactElement, seed?: Seed) {
 }
 
 describe("the Bot-only settings sections with the dictionary", () => {
-  it("shows no untranslated text in Connections, with a server that needs a reconnect", () => {
-    const html = expectTranslated(createElement(ConnectionsSection), (queryClient, client) => {
+  it("shows no untranslated text in Connections, with one that needs a reconnect", () => {
+    const host = { connect: () => {}, disconnect: () => {} };
+    const ui = createElement(ConnectionsSection, { host });
+    const html = expectTranslated(ui, (queryClient, client) => {
       queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), [
-        { key: "github", name: "GitHub", state: "reconnect", scopes: ["repo"] },
+        { key: "github", name: "GitHub", state: "reconnect" },
       ]);
     });
     expect(html).toContain("GitHub");

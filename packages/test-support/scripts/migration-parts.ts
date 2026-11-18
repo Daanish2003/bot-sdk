@@ -33,12 +33,6 @@ export const migrationParts = [
     cwd: "../botsdk/memory",
     config: "drizzle.config.ts",
   },
-  {
-    feature: "mcp",
-    folder: "../botsdk/mcp/src/server",
-    cwd: "../botsdk/mcp",
-    config: "drizzle.config.ts",
-  },
 ] as const;
 
 /** A part's migrations as its JSON should hold them, read from its drizzle-kit folders. */

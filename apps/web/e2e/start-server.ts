@@ -3,15 +3,12 @@
  * The end-to-end run's web server: creates the e2e database if missing, migrates and empties
  * it, then runs the production build (`.output`) in this process. Run by Playwright's
  * `webServer` with `serverEnv`; plain Node (type stripping), so imports keep their extensions.
- * It also starts a second copy of the build, on its own port, with `mcpServerEnv`: the one that
- * offers an MCP server. Both share the database.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { e2eDatabaseUrl } from "./database.ts";
-import { mcpServerEnv } from "./env.ts";
 
 // `pg` and Drizzle are the db package's dependencies, not the web app's.
 const dbRequire = createRequire(new URL("../../../packages/db/package.json", import.meta.url));
@@ -71,14 +68,5 @@ await runMigrateScript();
 await empty();
 
 const serverEntry = fileURLToPath(new URL("../.output/server/index.mjs", import.meta.url));
-
-// The MCP server's copy runs as a child process: the production build listens at import, so
-// two copies can't share this process. Playwright stops this one, and the child with it.
-const mcpCopy = spawn(process.execPath, [serverEntry], {
-  env: { ...process.env, ...mcpServerEnv },
-  stdio: "inherit",
-});
-process.on("exit", () => mcpCopy.kill());
-for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => process.exit());
 
 await import(pathToFileURL(serverEntry).href);

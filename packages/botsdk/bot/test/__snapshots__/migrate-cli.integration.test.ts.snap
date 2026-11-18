@@ -767,6 +767,15 @@ DROP TYPE "botsdk"."page_urgency";
 insert into botsdk.__migrations (feature, migration) values ('core', '20261118094916_drop_representative');
 commit;
 
+-- core/20261118115121_drop_mcp_connection
+begin;
+-- The mcp feature's Connections come from the Host's connection hook now (ADR 0037): its own token table and its journal rows go. A database that never enabled it has neither. Existing Connections must be connected again through the Host.
+DROP TABLE IF EXISTS "botsdk"."mcp_connection";--> statement-breakpoint
+DELETE FROM "botsdk"."__migrations" WHERE "feature" = 'mcp';
+;
+insert into botsdk.__migrations (feature, migration) values ('core', '20261118115121_drop_mcp_connection');
+commit;
+
 -- notes/0001_note
 begin;
 create table botsdk.test_note (id text primary key, bot_id uuid references botsdk.bot(id) on delete cascade)

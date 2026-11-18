@@ -1,4 +1,4 @@
-import { ConnectionsSection } from "@botsdk/ui/mcp";
+import { type ConnectionsHost, ConnectionsSection } from "@botsdk/ui/mcp";
 import {
   CredentialsSections,
   ImageModelSelect,
@@ -10,6 +10,7 @@ import { NotificationsSection } from "@botsdk/ui/settings/notifications-section"
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getChatgptLinkEnabled } from "@/functions/chatgpt-link-enabled";
+import { connectionProviders, unlinkConnection } from "@/connection-links";
 import { authClient } from "@/lib/auth-client";
 import { unlinkChatgpt } from "@/unlink-chatgpt";
 
@@ -33,6 +34,26 @@ const chatgpt: LinkedCredentialsHost = {
   },
 };
 
+// Connections (ADR 0037) are link-only Better Auth providers, like ChatGPT: Connect and Reconnect
+// send the browser to the app and back to this page. Disconnect only removes the account row.
+const connections: ConnectionsHost = {
+  connect: async (key) => {
+    const provider = connectionProviders[key];
+    if (!provider) throw new Error(`No Connection "${key}" is declared`);
+    const { error } = await authClient.linkSocial({ provider, callbackURL: "/settings/keys" });
+    if (error) throw new Error(error.message);
+  },
+  disconnect: async (key) => {
+    // Better Auth unlinks by account row id, so the Connection's rows are found first.
+    const { data: accounts, error: listError } = await authClient.listAccounts();
+    if (listError) throw new Error(listError.message);
+    await unlinkConnection(accounts ?? [], key, async (accountId) => {
+      const { error } = await authClient.unlinkAccount({ accountId });
+      if (error) throw new Error(error.message);
+    });
+  },
+};
+
 export const Route = createFileRoute("/_auth/settings/keys")({
   loader: () => getChatgptLinkEnabled(),
   component: KeysRoute,
@@ -43,7 +64,7 @@ function KeysRoute() {
   return (
     <KeySettingsPage>
       <CredentialsSections linkedCredentials={linkEnabled ? chatgpt : undefined} />
-      <ConnectionsSection />
+      <ConnectionsSection host={connections} />
       <ImageModelSelect />
       <NotificationsSection />
       <LinkedIdentitiesSection />

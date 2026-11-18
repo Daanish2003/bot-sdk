@@ -173,8 +173,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-    # The containers run with host networking, so their localhost is this runner's: the service
-    # containers, and the fake Ollama and MCP servers that Playwright's globalSetup starts here.
+    # The container runs with host networking, so its localhost is this runner's: the service
+    # containers, and the fake Ollama that Playwright's globalSetup starts here.
     env:
       E2E_EXTERNAL_SERVER: "1"
       E2E_DATABASE_URL: postgresql://postgres:password@127.0.0.1:5432/ai-chat_e2e
@@ -198,46 +198,42 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # DATABASE_URL alone is the servers' feature env too: neither sets E2B_*, so both have MCP only.
+      # DATABASE_URL alone is the server's feature env too: it sets no E2B_*, so it has no Computer
+      # features, and only the core is migrated (`mcp`, added in src/services.ts, has no tables).
       - name: Migrate the e2e database (the image's migrate script)
         run: |
           docker run --rm --network host --workdir /app/apps/web \
             -e DATABASE_URL ai-chat-web:ci node scripts/migrate.ts
 
-      # Each server's environment is apps/web/e2e/env.ts's (`serverEnv`, `mcpServerEnv`, with REDIS_URL
-      # from this job), so the containers run exactly as the local suite's servers do.
-      - name: Write the two servers' environments from apps/web/e2e/env.ts
+      # The server's environment is apps/web/e2e/env.ts's (`serverEnv`, with REDIS_URL from this
+      # job), so the container runs exactly as the local suite's server does.
+      - name: Write the server's environment from apps/web/e2e/env.ts
         working-directory: apps/web
         run: |
           node --input-type=module -e "
             import { writeFileSync } from 'node:fs';
-            import { serverEnv, mcpServerEnv } from './e2e/env.ts';
+            import { serverEnv } from './e2e/env.ts';
             const file = (env) => Object.entries({ ...env, DATABASE_URL: process.env.DATABASE_URL })
               .map(([name, value]) => name + '=' + value).join('\n') + '\n';
             writeFileSync('${{ runner.temp }}/web.env', file(serverEnv));
-            writeFileSync('${{ runner.temp }}/web-mcp.env', file(mcpServerEnv));
           "
 
-      - name: Start the server (no MCP server) on 3100 and the server offering one MCP server on 3101
-        run: |
-          docker run -d --name web-e2e --network host --env-file "${{ runner.temp }}/web.env" ai-chat-web:ci
-          docker run -d --name web-e2e-mcp --network host --env-file "${{ runner.temp }}/web-mcp.env" ai-chat-web:ci
+      - name: Start the server on 3100
+        run: docker run -d --name web-e2e --network host --env-file "${{ runner.temp }}/web.env" ai-chat-web:ci
 
-      - name: Wait for both servers
+      - name: Wait for the server
         run: |
-          for port in 3100 3101; do
-            for _ in $(seq 1 90); do
-              curl -fsS -o /dev/null "http://localhost:$port/login" && break
-              sleep 2
-            done
-            curl -fsS -o /dev/null "http://localhost:$port/login"
+          for _ in $(seq 1 90); do
+            curl -fsS -o /dev/null "http://localhost:3100/login" && break
+            sleep 2
           done
+          curl -fsS -o /dev/null "http://localhost:3100/login"
 
       - name: Install Chromium for Playwright
         run: pnpm -F web exec playwright install --with-deps chromium
 
-      # The suite's own fake Ollama and fake MCP servers start in its globalSetup. Its `desktop`,
-      # `phone` and `mcp` projects, and the Redis spec (REDIS_URL is set), run here.
+      # The suite's own fake Ollama starts in its globalSetup. Its `desktop` and `phone` projects,
+      # and the Redis spec (REDIS_URL is set), run here.
       - name: End-to-end tests
         run: pnpm -F web test:e2e
 
@@ -253,8 +249,8 @@ jobs:
 
       - name: Container logs
         if: failure()
-        run: docker logs web-e2e; docker logs web-e2e-mcp
+        run: docker logs web-e2e
 
       - name: Stop the containers
         if: always()
-        run: docker rm -f web-e2e web-e2e-mcp || true
+        run: docker rm -f web-e2e || true

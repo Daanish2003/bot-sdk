@@ -79,7 +79,7 @@ export function BotSdkProvider({
 
 /**
  * The provider's adapter. A feature's UI names the URLs its client part adds:
- * `useChatAdapter<McpUrls>()`.
+ * `useChatAdapter<{ someUrl: string }>()`.
  */
 export function useChatAdapter<Urls extends object = object>(): ChatAdapter & Urls {
   const adapter = useContext(ChatContext);

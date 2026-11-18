@@ -7,15 +7,18 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { claimJob, inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { mcp } from "../../src";
-import type { McpServerConfig } from "../../src";
+import type { HostTool, McpConnection } from "../../src";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
-import { createFakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
-import { createFakeMcpServer, type FakeMcpTool } from "@ai-chat/test-support/fake-mcp-server";
+import {
+  createFakeMcpServer,
+  fakeMcpResource,
+  type FakeMcpTool,
+} from "@ai-chat/test-support/fake-mcp-server";
 import { fakeReviewer } from "@botsdk/testing/fake-reviewer";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { followSend } from "@ai-chat/test-support/follow-send";
-import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
+import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
@@ -24,17 +27,12 @@ vi.setConfig({ testTimeout: 30_000 });
 
 const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
-const basePath = "http://localhost/api/chat";
-const clientId = "ai-chat-test";
-const clientSecret = "test-client-secret";
-const mcpOrigin = new URL(fakeMcpResource).origin;
-
+const token = "linear-access-token";
 /** Every tool is approval-free, so a refusal in these tests can only come from the read-only gate. */
-const linear: McpServerConfig = {
+const linear: McpConnection = {
   key: "linear",
   name: "Linear",
-  url: fakeMcpResource,
-  oauth: { clientId, clientSecret },
+  mcp: { url: fakeMcpResource },
   approvalFree: ["list_issues", "get_team", "create_issue", "update_issue"],
   readOnlyTools: ["get_team"],
 };
@@ -57,11 +55,19 @@ const call = (name: string, input: unknown) => toolCall({ id: `call-${name}`, na
 // Sunday 18 October 2026, 11:00 in London; the Routine fires on Monday 19 October at 11:00.
 const sunday = new Date("2026-10-18T10:00:00.000Z");
 
-/** Runs the Monday fire of a Routine created `readOnly` or not, whose Turn runs every Connector tool. */
-async function fireRoutine(readOnly: boolean) {
+/**
+ * Runs the Monday fire of a Routine created `readOnly` or not, whose Turn runs every Connector tool:
+ * Linear's over the fake MCP server, or `connection`'s tools, which the Host wrote.
+ */
+async function fireRoutine(readOnly: boolean, connection: McpConnection = linear) {
+  const names = connection.tools?.map((tool) => tool.name) ?? tools.map((tool) => tool.name);
   const timer = fakeJobClock(sunday);
   const run = (name: string) =>
-    toolCall({ id: `call-${name}`, name: "run_tool", input: { name: `linear_${name}`, args: {} } });
+    toolCall({
+      id: `call-${name}`,
+      name: "run_tool",
+      input: { name: `${connection.key}_${name}`, args: {} },
+    });
   const fake = createFakeAdapter({
     rounds: [
       round(
@@ -73,17 +79,11 @@ async function fireRoutine(readOnly: boolean) {
         }),
       ),
       round(),
-      round(...tools.map((tool) => run(tool.name))),
+      round(...names.map(run)),
       round(),
     ],
   });
-  const auth = createFakeMcpAuth({ clientId, clientSecret });
-  const server = createFakeMcpServer({ auth, tools });
-  const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    const isEndpoint = url.origin === mcpOrigin && url.pathname === "/mcp";
-    return (isEndpoint ? server.fetch : auth.fetch)(input, init);
-  }) as typeof globalThis.fetch;
+  const server = createFakeMcpServer({ accepts: (sent) => sent === token, tools });
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
     db: getTestDb(),
@@ -94,8 +94,8 @@ async function fireRoutine(readOnly: boolean) {
   });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
-    features: [mcp({ servers: [linear] })],
-    fetch,
+    features: [mcp({ connections: [connection], connection: () => ({ accessToken: token }) })],
+    fetch: server.fetch,
     jobs,
     clock: timer.clock.now,
     adapterFor: () => fake.adapter,
@@ -110,15 +110,6 @@ async function fireRoutine(readOnly: boolean) {
     hint: "…-key",
     verified: true,
   });
-  const chat = createTestChat({ user, deps });
-  const start = await chat.fetch(
-    new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
-      redirect: "manual",
-    }),
-  );
-  await chat.fetch(
-    new Request(auth.approve(start.headers.get("location") ?? ""), { redirect: "manual" }),
-  );
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bots.create({ name: "Ada", model });
 
@@ -172,6 +163,33 @@ describe("Connector tools in a read-only run", () => {
     expect(results.create_issue).toBe(refused);
     expect(results.update_issue).toBe(refused);
     expect(server.calls.map((each) => each.name).sort()).toEqual(["get_team", "list_issues"]);
+  });
+
+  it("runs a Host tool named in readOnlyTools, and refuses the rest", async () => {
+    const ran: string[] = [];
+    const tool = (name: string): HostTool => ({
+      name,
+      description: `The Host's ${name} tool.`,
+      inputSchema: { type: "object", properties: {} },
+      outputSchema: { type: "object", properties: {} },
+      execute: () => {
+        ran.push(name);
+        return {};
+      },
+    });
+    const calendar: McpConnection = {
+      key: "calendar",
+      name: "Google Calendar",
+      tools: [tool("list_events"), tool("create_event")],
+      approvalFree: ["list_events", "create_event"],
+      readOnlyTools: ["list_events"],
+    };
+
+    const { results } = await fireRoutine(true, calendar);
+
+    expect(results.list_events).not.toBe(refused);
+    expect(results.create_event).toBe(refused);
+    expect(ran).toEqual(["list_events"]);
   });
 
   it("changes nothing outside a read-only run", async () => {

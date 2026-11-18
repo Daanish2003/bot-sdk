@@ -1,1 +1,1 @@
-export { ConnectionsSection } from "./connections-section";
+export { ConnectionsSection, type ConnectionsHost } from "./connections-section";

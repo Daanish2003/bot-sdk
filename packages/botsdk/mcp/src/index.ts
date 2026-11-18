@@ -1,2 +1,8 @@
 export { mcp, type McpApi, type McpOptions } from "./server/plugin";
-export type { McpServerConfig } from "./server/servers";
+export {
+  ConnectionBrokenError,
+  type ConnectionAnswer,
+  type ConnectionHook,
+  type HostTool,
+  type McpConnection,
+} from "./server/connections";
