@@ -1,9 +1,4 @@
-import {
-  createAuth,
-  GITHUB_CONNECTION_PROVIDER,
-  GMAIL_PROVIDER,
-  GOOGLE_CALENDAR_PROVIDER,
-} from "@ai-chat/auth";
+import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { linkedAccessToken } from "@ai-chat/auth/linked-token";
 import { createDb } from "@ai-chat/db";
@@ -31,7 +26,7 @@ import {
   quotaOf,
 } from "./host-models";
 import { linkedCredentialsHook } from "./chatgpt-link";
-import { connectionHookOf, connectionsOf } from "./connections";
+import { connectionHookOf, connectionsOf, connectionTokensOf } from "./connections";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
 import { computerProviderOf } from "./computer";
 import { modelProviders } from "./model-providers";
@@ -86,7 +81,7 @@ export const sdk = (shared.botSdk ??= createBotSdk({
     ...botsdkConfig.features,
     // Connections (ADR 0037): each one's token comes from Better Auth through apps/web's own
     // database pool, never the SDK's connection, so a hook asked inside an SDK transaction can't
-    // wait on it. A missing or broken link is never cached.
+    // wait on it. Never cached, so a Disconnect shows and stops the tools at once.
     mcp({
       connections: connectionsOf({
         GITHUB_CLIENT_ID: ENV.GITHUB_CLIENT_ID,
@@ -94,15 +89,9 @@ export const sdk = (shared.botSdk ??= createBotSdk({
         GOOGLE_CLIENT_ID: ENV.GOOGLE_CLIENT_ID,
         GOOGLE_CLIENT_SECRET: ENV.GOOGLE_CLIENT_SECRET,
       }),
-      connection: connectionHookOf({
-        github: cachedTokenFor((userId) =>
-          linkedAccessToken(auth, db, userId, GITHUB_CONNECTION_PROVIDER),
-        ),
-        google_calendar: cachedTokenFor((userId) =>
-          linkedAccessToken(auth, db, userId, GOOGLE_CALENDAR_PROVIDER),
-        ),
-        gmail: cachedTokenFor((userId) => linkedAccessToken(auth, db, userId, GMAIL_PROVIDER)),
-      }),
+      connection: connectionHookOf(
+        connectionTokensOf((userId, providerId) => linkedAccessToken(auth, db, userId, providerId)),
+      ),
     }),
   ],
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
