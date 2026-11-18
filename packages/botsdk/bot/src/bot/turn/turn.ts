@@ -34,12 +34,7 @@ import {
   startTurn,
   turnStarted,
 } from "../triggers";
-import {
-  assignmentsAtTurnStart,
-  queueRedactionAfterTurn,
-  setAsideAtStop,
-  turnBudget,
-} from "../assignments";
+import { assignmentsAtTurnStart, setAsideAtStop, turnBudget } from "../assignments";
 import {
   build,
   type ContextTurn,
@@ -534,7 +529,6 @@ async function turnEnded(
     .where(eq(botTurn.id, turnId));
   if (!ended) return undefined;
   await lockConversation(tx, ended.conversationId);
-  await queueRedactionAfterTurn(deps, tx, { id: turnId, userId: ended.userId });
   await featuresAfterTurn(deps, tx, { id: turnId, ...ended });
   return startTurn(deps, tx, ended);
 }

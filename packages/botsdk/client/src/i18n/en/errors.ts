@@ -8,7 +8,6 @@ export const errorMessages = {
   "error.conversationNotFound": "Conversation not found",
   "error.messageNotFound": "Message not found",
   "error.botNotFound": "Bot not found",
-  "error.pageNotFound": "Page not found",
   "error.botPaused": "Bot is paused. Resume to send.",
   "error.botPausedApproval": "Bot is paused. Resume to approve.",
   "error.roomNotFound": "Room not found",
@@ -23,78 +22,11 @@ export const errorMessages = {
   "error.channelCredentialsRejected":
     "The platform rejected these credentials. Check them and try again.",
   "error.channelSenderUnverified":
-    "This platform can't confirm who sent a message, so it can't wake a Bot. Connect it to a Representative instead.",
+    "This platform can't confirm who sent a message, so it can't wake a Bot.",
   "error.notificationRouteNotLinked": "Link your account on that Channel to send Messages there.",
-  "error.channelAccountTaken": "That bot is already connected to someone else.",
+  "error.channelAccountTaken": "That bot is already connected to someone else's Bot.",
   "error.customRuleLimit": ({ max }: { max: number }) =>
     `You can have at most ${max} active rules. Delete one to add another.`,
-  "error.representativeNotFound": "Representative not found",
-  "error.widgetKeyNotFound": "This Representative has no widget key yet.",
-  "error.widgetKeyTaken": "This Representative already has a widget key.",
-  "error.widgetSessionRefused": "This chat can't be started from here.",
-  "error.widgetSessionEnded": "This chat has ended. Reload the page to start a new one.",
-  "error.widgetMessageInvalid": "That message can't be sent.",
-  "error.widgetCodeWrong": "That code is wrong or has expired. Ask for a new one.",
-  "error.customerNotFound": "Customer not found",
-  "error.profileFieldNotFound": "Profile field not found",
-  "error.profileFieldTaken": "You already have a profile field of that name.",
-  "error.threadNotFound": "Thread not found",
-  "error.threadClosed": "This thread has closed",
-  "error.heldMessageNotFound": "Held message not found",
-  "error.threadNotHeld": "Take over this thread to write in it",
-  "error.customerBlocked": "This Customer is blocked, so nothing is sent to them",
-  "error.channelLimits":
-    "This Channel doesn't let this message go now: its reply window has closed, it is too long, or it can't start a chat",
-  "error.customerOptedOut": "This Customer opted out, so nothing is sent to them",
-  "error.customerIdentityTaken": "One of your Customers already has that identity.",
-  "error.factNotFound": "Fact not found",
-  "error.factKeyTaken": "You already have a fact with that key.",
-  "error.gapNotFound": "Gap not found",
-  "error.replyDraftNotFound": "Draft not found",
-  "error.replyDraftGone": "This draft is no longer waiting",
-  "error.replyDraftNotSent":
-    "This draft can't be sent now: the thread may be held or closed, the Customer blocked, or the Representative switched off",
-  "error.topicExists": "You already have this topic",
-  "error.topicNotFound": "Topic not found",
-  "error.factProposalGone": "That proposal is no longer waiting.",
-  "error.customerMergeSame": "A Customer can't merge into itself.",
-  "error.customerMergeBlocked": "Unblock this Customer before merging.",
-  "error.customerMergeNotFound": "Merge not found",
-  "error.customerMergeLater": "Undo the later merge of this Customer first.",
-  "error.representativeJobTextBlank":
-    "Write the job text before approving: a Release needs to say what the Representative does.",
-  "error.voiceNumberInvalid": "That isn't a phone number in E.164 format, such as +15551234567.",
-  "error.voiceAccountNotFound": "That voice account isn't connected to this Representative.",
-  "error.representativeNoRelease": "Approve a Release before switching this Representative on.",
-  "error.representativeTestsFailed":
-    "A test conversation failed. Fix the draft, or approve anyway and say why.",
-  "error.representativeTestsUnfinished":
-    "The tests haven't finished for this draft. Run them, or approve anyway and say why.",
-  "error.representativeOverrideReason": "Say why you are approving anyway.",
-  "error.representativeDocumentsTooLong": ({ chars, limit }: { chars: number; limit: number }) =>
-    `This draft's documents hold ${chars} characters, and a Release can hold ${limit}. Remove some before approving.`,
-  "error.representativeDocumentFormat": ({ name }: { name: string }) =>
-    `"${name}" can't be added: upload a Markdown, text, PDF or DOCX file.`,
-  "error.representativeDocumentNoConversion": ({ name }: { name: string }) =>
-    `"${name}" can't be read here: this server takes only Markdown and plain text.`,
-  "error.representativeDocumentTooLong": ({ name }: { name: string }) =>
-    `"${name}" has too much text.`,
-  "error.representativeDocumentEmpty": ({ name }: { name: string }) => `"${name}" has no text.`,
-  "error.representativeDocumentUnreadable": ({ name }: { name: string }) =>
-    `"${name}" can't be read as text.`,
-  "error.representativeKnowledgeUnavailable": "This server has no Knowledge to pick files from.",
-  "error.representativeKnowledgeNoSuchFile": ({ name }: { name: string }) =>
-    `"${name}" isn't in Knowledge any more.`,
-  "error.representativeKnowledgeNoCopy": ({ name }: { name: string }) =>
-    `"${name}" has no converted copy to take text from. Upload it to Knowledge again.`,
-  "error.representativeDocumentName": "That file's name can't be used. Rename it and try again.",
-  "error.representativeTooManyDocuments": ({ limit }: { limit: number }) =>
-    `A draft can hold ${limit} documents. Remove one first.`,
-  "error.representativeDocumentNotFound": "That document isn't in the draft any more.",
-  "error.representativeModelUnavailable":
-    "This draft names a Model you can't use. Choose another before approving.",
-  "error.representativeNoApproval": "No Approval is waiting on this draft any more.",
-  "error.releaseNotFound": "Release not found",
   "error.routineNotFound": "Routine not found",
   "error.routineNotWebhook": "Only an approved webhook Routine has a URL to rotate",
   "error.routineWebhookSchedule": "A webhook Routine has no schedule to edit",

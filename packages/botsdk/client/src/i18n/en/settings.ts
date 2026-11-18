@@ -98,16 +98,6 @@ export const settingsMessages = {
   "settings.unlinkIdentity": "Unlink",
   "settings.unlinkIdentityLabel": ({ platform }: { platform: string }) => `Unlink ${platform}`,
   "settings.unlinkFailed": "Couldn't unlink that account",
-  // Pages (ticket #1300).
-  "settings.pages": "Pages",
-  "settings.pagesTruncated":
-    "There are more Pages than this list shows. Acknowledge one here to bring in the next.",
-  "settings.pagesHelp":
-    "Alerts sent to you outside the app. Acknowledge one to stop it being sent further.",
-  "settings.pageEmergency": "Emergency",
-  "settings.acknowledge": "Acknowledge",
-  "settings.acknowledgePage": ({ title }: { title: string }) => `Acknowledge ${title}`,
-  "settings.acknowledgeFailed": "Couldn't acknowledge that Page",
   "settings.getLinkCode": "Get a link code",
   "settings.linkCodeHelp":
     "Send this code to any of your Bots, or open a link below. It works once.",

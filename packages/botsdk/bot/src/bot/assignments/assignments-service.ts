@@ -1,5 +1,5 @@
 import type { AssignmentResult, AssignmentStatus } from "@botsdk/client/bot/assignment";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AnyFeature } from "../../feature";
@@ -16,15 +16,12 @@ import {
   cancelAssignment,
   canWork,
   chainDepthFromTurn,
-  moveAssignment,
   openAssignment,
 } from "./assignment";
-import { redactAssignments } from "./redact";
 
 /*
- * The `assignments` core service (ticket #1185, ADR 0029): how a feature hands work to a Bot, as a
- * Representative will. One per feature, so it acts only on what that feature assigned, for the
- * owner it's called with. The core never calls a feature: the job it named tells it of the end.
+ * The `assignments` core service (ticket #1185, ADR 0029): how a feature hands work to a Bot. One
+ * per feature, so it acts only on what that feature assigned, for the owner it's called with. The core never calls a feature: the job it named tells it of the end.
  */
 
 /** What the job an Assignment names is queued with when it ends: use it as the job's `payload`. */
@@ -37,7 +34,6 @@ export const assignmentEnded = z.object({
   result: z
     .object({
       outcome: z.string(),
-      forCustomer: z.string().optional(),
       when: z.string().optional(),
     })
     .nullable(),
@@ -54,10 +50,6 @@ const createInput = z.object({
 
 const assignmentInput = z.object({ id: z.uuid() });
 
-const moveInput = z.object({ id: z.uuid(), botId: z.uuid() });
-
-const redactInput = z.object({ ids: z.array(z.uuid()) });
-
 /** What a feature's `needs: ["assignments"]` gives it. */
 export type AssignmentsService = {
   /**
@@ -70,8 +62,8 @@ export type AssignmentsService = {
    * `afterTurn` are called for, which a job they queue carries in its payload. The core places the
    * Assignment in that Turn's chain, so a Bot → feature → Bot loop stops where a Bot's own chain does:
    * past the limit is CONFLICT, in a message the Model can act on. A Turn that doesn't exist or isn't
-   * this owner's is NOT_FOUND. With no Turn behind the work, as for a webhook or a Representative's
-   * hand-off, it starts a chain at depth 1.
+   * this owner's is NOT_FOUND. With no Turn behind the work, as for a webhook, it starts a chain at
+   * depth 1.
    *
    * In a feature's `tools`, the service in the `context` they're given counts from the Turn it's
    * called in by itself, so `turnId` can be left out. If a tool names another Turn too, the deeper of
@@ -107,37 +99,6 @@ export type AssignmentsService = {
   }>;
   /** Cancels one of the feature's own Assignments, which queues its job; an ended one is CONFLICT. */
   cancel: (input: { userId: string; id: string }) => Promise<void>;
-  /**
-   * Moves one of the feature's own Assignments that hasn't ended to another of the owner's Bots,
-   * keeping its status and log: a log row is added, the old Bot's unread hand-over is skipped, and
-   * the new Bot wakes on it. An ended one is CONFLICT; another owner's Assignment or Bot, or one
-   * another feature made, is NOT_FOUND; a Bot whose Model can't run is CONFLICT.
-   */
-  move: (input: { userId: string; id: string; botId: string }) => Promise<void>;
-  /**
-   * Flags one of the feature's own Assignments overdue, in the caller's transaction: sets its
-   * `overdueAt` to now. It's a flag, never a status, so the work goes on. `marked` is false when
-   * it had ended, was already flagged, or isn't this owner's or this feature's, so only the first
-   * call for an Assignment that is still open gets true.
-   */
-  markOverdue: (
-    tx: Transaction,
-    input: { userId: string; id: string },
-  ) => Promise<{ marked: boolean }>;
-  /**
-   * Redacts the feature's own Assignments `ids` of this owner, as deleting whoever they came from
-   * needs (ticket #1288): their text and everything the Bot's records hold of it go, for the child
-   * Assignments too, and the Assignments stay as redacted records. One that hasn't ended is cancelled
-   * with its children, so no Bot waits on it. Any other id is ignored, and repeating it changes nothing.
-   *
-   * It runs in the caller's transaction and takes the locks of the Conversations it writes to, up
-   * front in id order, so any lock of the caller's that others take before a Conversation's comes
-   * first. The caller wakes the runner and hints `conversationIds` once `tx` commits.
-   */
-  redact: (
-    tx: Transaction,
-    input: { userId: string; ids: string[] },
-  ) => Promise<{ conversationIds: string[] }>;
 };
 
 const notFound = () => rpcError("NOT_FOUND", "error.assignmentNotFound", "Assignment not found");
@@ -245,73 +206,6 @@ export function assignmentsService(
       }
       deps.runner.wake();
       for (const conversationId of cancelled.woken) await hintChanged(deps, conversationId);
-    },
-
-    move: async ({ userId, ...rest }) => {
-      const { id, botId } = parseInput(moveInput, rest);
-      const [target] = await deps.db
-        .select({
-          id: bot.id,
-          name: bot.name,
-          model: bot.model,
-          conversationId: bot.conversationId,
-        })
-        .from(bot)
-        .where(and(eq(bot.id, botId), eq(bot.userId, userId)));
-      if (!target) throw rpcError("NOT_FOUND", "error.botNotFound", "Bot not found");
-      if (!(await canWork(deps, { userId, model: target.model }))) {
-        throw rpcError("CONFLICT", "error.assignmentBotCantWork", "The Bot can't work right now");
-      }
-      const moved = await deps.db.transaction((tx) =>
-        moveAssignment(deps, tx, { feature: feature.id, userId }, id, target),
-      );
-      if ("reason" in moved) {
-        throw moved.reason === "ended"
-          ? rpcError("CONFLICT", "error.assignmentEnded", "This Assignment already ended")
-          : notFound();
-      }
-      deps.runner.wake();
-      for (const conversationId of moved.woken) await hintChanged(deps, conversationId);
-    },
-
-    markOverdue: async (tx, { userId, ...rest }) => {
-      const { id } = parseInput(assignmentInput, rest);
-      const [marked] = await tx
-        .update(botAssignment)
-        .set({ overdueAt: deps.clock() })
-        .from(bot)
-        .where(
-          and(
-            eq(bot.id, botAssignment.assignedBotId),
-            eq(bot.userId, userId),
-            eq(botAssignment.id, id),
-            eq(botAssignment.assignerFeature, feature.id),
-            isNull(botAssignment.overdueAt),
-            isNull(botAssignment.endedAt),
-          ),
-        )
-        .returning({ id: botAssignment.id });
-      return { marked: marked !== undefined };
-    },
-
-    redact: async (tx, { userId, ...rest }) => {
-      const { ids } = parseInput(redactInput, rest);
-      const own = await tx
-        .select({ id: botAssignment.id })
-        .from(botAssignment)
-        .innerJoin(bot, eq(bot.id, botAssignment.assignedBotId))
-        .where(
-          and(
-            inArray(botAssignment.id, ids),
-            eq(botAssignment.assignerFeature, feature.id),
-            eq(bot.userId, userId),
-          ),
-        );
-      const conversationIds = await redactAssignments(deps, tx, {
-        userId,
-        ids: own.map((row) => row.id),
-      });
-      return { conversationIds };
     },
   };
 }

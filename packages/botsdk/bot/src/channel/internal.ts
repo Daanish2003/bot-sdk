@@ -1,20 +1,16 @@
 // The channel service's entry point inside the SDK (#889): the core imports it only through this
 // file. index.ts stays the public package export.
 export {
-  type AuthVerdict,
   bareAddress,
-  type DmarcPolicy,
   type EmailChannel,
   type EmailProvider,
   type InboundMail,
   type MailFile,
   MailFileTooLargeError,
-  newEmailAddress,
   type OutboundMail,
 } from "./email";
 export {
   emailBody,
-  pageEmailBody,
   type FileBytes,
   fitsInOneEmail,
   headerText,
@@ -22,7 +18,7 @@ export {
   namedAddress,
   replySubject,
 } from "./email-out";
-export { appLink, approveOption, denyOption, messagingBody, otherOption } from "./messaging-out";
+export { approveOption, denyOption, messagingBody, otherOption } from "./messaging-out";
 export {
   CredentialsRejectedError,
   isMessagingAdapter,
@@ -31,7 +27,6 @@ export {
   type MessagingButtons,
   type MessagingCall,
   type MessagingFile,
-  type MessagingReach,
   MessagingFileTooLargeError,
   MessagingSendError,
   type MessagingUpdate,
@@ -46,12 +41,9 @@ export {
   type ChannelApi,
   type ChannelOptions,
   type ChannelPlugin,
-  type HeldAccountInput,
   type LinkedIdentitiesApi,
   deliveryPayload,
   type DeliveryPayload,
-  type PageDelivery,
-  pageDeliveryPayload,
 } from "./plugin";
 export {
   type PushNotification,

@@ -1,6 +1,0 @@
-packages:
-  - .
-allowBuilds:
-  "@livekit/blingfire": false
-  "@livekit/local-inference": false
-  onnxruntime-node: false

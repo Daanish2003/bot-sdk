@@ -78,7 +78,6 @@
     "@botsdk/knowledge": "workspace:*",
     "@botsdk/mcp": "workspace:*",
     "@botsdk/memory": "workspace:*",
-    "@botsdk/representative": "workspace:*",
     "@botsdk/skills": "workspace:*",
     "@botsdk/testing": "workspace:*",
     "@tanstack/ai-anthropic": "1.0.0",

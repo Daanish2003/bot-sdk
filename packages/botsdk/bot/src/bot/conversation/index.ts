@@ -4,15 +4,11 @@ export {
   activeChannelAccountIds,
   channelAccountIdsOf,
   listChannelAccounts,
-  featureHolding,
-  hasHolder,
   listenerAccount,
   markNeedsAttention,
   removeChannelAccount,
-  removeHeldChannelAccounts,
   rotateChannelAccountKeys,
   saveChannelAccount,
-  saveHeldChannelAccount,
 } from "./channel-accounts";
 export { channelUserDelete, exportChannelData } from "./channel-user-data";
 export { emailAddressOf, rotateEmailAddress } from "./email-address";
@@ -22,7 +18,6 @@ export {
   listLinkedIdentities,
   unlinkIdentity,
 } from "./linked-identities";
-export { pageDeliveryJob, pageIn, sendPage } from "./page-delivery";
 export {
   deliverIn,
   deliveryJob,
@@ -96,7 +91,6 @@ export {
   newestBotModel,
   newestTimeZone,
   reactionsOf,
-  redactedText,
   setReaction,
   textParts,
   toBotMessage,

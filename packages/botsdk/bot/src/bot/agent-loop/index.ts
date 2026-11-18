@@ -3,7 +3,6 @@ export {
   capOutput,
   capResult,
   capText,
-  notSavedNote,
   operateComputer,
   computerOf,
   computerOperationError,
@@ -27,7 +26,6 @@ export {
   type LoopKit,
   type LoopResult,
   midTurnNote,
-  type RepresentativeIdentity,
   runLoop,
   seesImagesOnce,
   summarizeInstruction,
@@ -40,13 +38,6 @@ export {
   type PreviousCall,
   sha256,
 } from "./prompt-hashes";
-export {
-  representativeLoopService,
-  type RepresentativeLoopKit,
-  type RepresentativeLoopOptions,
-  type RepresentativeLoopResult,
-  type RepresentativeLoopService,
-} from "./representative-loop";
 export { runShell, type ShellInput } from "./shell";
 export { type SearchClient, SearchError } from "./search-client";
 export { createTavilyClient } from "./tavily";

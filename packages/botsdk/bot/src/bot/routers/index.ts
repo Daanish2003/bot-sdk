@@ -147,13 +147,6 @@ const reviews = os.reviews.router({
   ),
 });
 
-const pages = os.pages.router({
-  list: os.pages.list.handler(({ context }) => context.sdk.pages.list({ userId: context.user.id })),
-  acknowledge: os.pages.acknowledge.handler(({ context, input }) =>
-    context.sdk.pages.acknowledge({ ...input, userId: context.user.id }),
-  ),
-});
-
 const notifications = os.notifications.router({
   get: os.notifications.get.handler(({ context }) =>
     context.sdk.notifications.get({ userId: context.user.id }),
@@ -270,7 +263,6 @@ export const botPluginRouter = {
   reviews,
   rules,
   notifications,
-  pages,
   secrets,
   demonstrations,
   computer,

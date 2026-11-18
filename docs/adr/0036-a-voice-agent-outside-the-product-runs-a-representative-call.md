@@ -1,8 +1,10 @@
 ---
-Status: accepted
+Status: superseded
 ---
 
 # A Voice agent outside the product runs a Representative's Call, and speech skips the outbound gate
+
+_Superseded 2026-11-18: the Representative feature was removed (spec [#1167](https://github.com/Daanish2003/bot-sdk/issues/1167)), so this decision no longer applies._
 
 Decided in [Who holds a phone call and runs the conversation](https://github.com/Daanish2003/bot-sdk/issues/1367), on the [Voice calls map](https://github.com/Daanish2003/bot-sdk/issues/979). It reverses the ruling on [How calls reach a Representative](https://github.com/Daanish2003/bot-sdk/issues/1165) that a realtime model must not act as the Representative.
 

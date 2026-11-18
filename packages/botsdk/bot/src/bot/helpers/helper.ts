@@ -52,7 +52,7 @@ import {
   runToolName,
   toolSearchTools,
 } from "../context";
-import { helperBudget, queueRedactionAfterHelper } from "../assignments";
+import { helperBudget } from "../assignments";
 import { closeWaitingReviews } from "../safety";
 import { hintBotThread, lockConversation, lockTurnConversations, receive } from "../triggers";
 
@@ -796,7 +796,7 @@ export function gistOf(task: string): string {
 async function endHelper(
   deps: BotSdkContext,
   tx: Transaction,
-  helper: Pick<HelperFacts, "id" | "botId" | "type" | "task" | "usage" | "userId">,
+  helper: Pick<HelperFacts, "id" | "botId" | "type" | "task" | "usage">,
   ending: { status: "complete" | "error"; report: string },
   played: Pick<PlayedHelper, "input" | "transcript" | "usage">,
 ): Promise<{ botId: string; conversationId: string; started: boolean } | null> {
@@ -820,7 +820,6 @@ async function endHelper(
   await recordBotChange(tx, owner, "helper", helper.id, now);
   // A Helper cut off mid-wait (its time limit, or a lost job) leaves no request open.
   await closeWaitingReviews(deps, tx, { helperId: helper.id }, "expired");
-  await queueRedactionAfterHelper(deps, tx, helper);
   const { started = false } = await receive(deps, tx, {
     id: helperTriggerId(helper.id),
     botId: helper.botId,
@@ -919,8 +918,7 @@ export const helperStoppedJobName = "bot.helper.stopped";
  * What a stop leaves to after its commit, enqueued in its transaction (`stopHelpers`), so it runs
  * only once the stop stands, and again after a crash: the stopped Helper's transcript and usage
  * become what its Checkpoints hold (unless it was waiting, and saved them then), and its Screen is
- * closed. Each part is best-effort and logged, and the same however often it runs. Last, a further
- * redaction pass is queued (ticket #1291), which a retry repeats.
+ * closed. Each part is best-effort and logged, and the same however often it runs.
  */
 export const helperStoppedJob = defineCoreJob({
   name: helperStoppedJobName,
@@ -933,11 +931,6 @@ export const helperStoppedJob = defineCoreJob({
   run: async ({ helperId, userId, screen, waited }, ctx) => {
     if (!waited) await recordStoppedHelper(ctx.deps, helperId);
     await closeScreen(ctx.deps, { id: helperId, userId, screen });
-    // Last, once its transcript is stored: the one part here that can fail, and a retry repeats it.
-    await ctx.deps.db.transaction((tx) =>
-      queueRedactionAfterHelper(ctx.deps, tx, { id: helperId, userId }),
-    );
-    ctx.deps.runner.wake();
   },
 });
 

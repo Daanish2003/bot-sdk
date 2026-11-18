@@ -1,4 +1,4 @@
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bot, botHelper, botReview, botTrigger, job } from "../../storage";
@@ -26,7 +26,6 @@ import {
   hintChanged,
   markComputerRebuildSeen,
   noResetAfter,
-  redactedText,
   reviewConversation,
 } from "../conversation";
 import { hintBotThread, lockTurnConversations, receive } from "../triggers";
@@ -310,9 +309,8 @@ async function featureCall(
 /**
  * Wakes the Bot with the call's Approval Trigger, under its Conversation's row lock: once, since
  * its id comes from the review. A Bot deleted meanwhile wakes no one, nor does one reset since the
- * call was allowed (spec #1007): it forgot the call. Nor does a call redacted since (ticket #1288):
- * its summary and result would bring a deleted Customer's words back. Returns `false` when it woke
- * no one, and else whether the Trigger started a Turn.
+ * call was allowed (spec #1007): it forgot the call. Returns `false` when it woke no one, and else
+ * whether the Trigger started a Turn.
  */
 async function wakeWith(
   deps: BotSdkContext,
@@ -329,7 +327,6 @@ async function wakeWith(
     .where(
       and(
         eq(botReview.id, call.reviewId),
-        ne(botReview.summary, redactedText),
         noResetAfter(tx, { conversationId: call.conversationId }, botReview.decidedAt),
       ),
     );

@@ -3,8 +3,6 @@ import type { ComponentProps, ReactNode } from "react";
 import { ChoiceCard } from "./choice-card";
 import { ComputerCard } from "./computer-card";
 import { FilesCard } from "./files-card";
-import { FactApprovalCard } from "./fact-approval-card";
-import { ReleaseApprovalCard } from "./release-approval-card";
 import { ReviewRequest } from "./review-request";
 import { RoutineCard } from "./routine-card";
 import { RuleCard } from "./rule-card";
@@ -24,8 +22,6 @@ export const defaultRichControlRenderers = {
   routine_approval: RoutineCard,
   review_approval: ReviewRequest,
   rule_approval: RuleCard,
-  release_approval: ReleaseApprovalCard,
-  fact_approval: FactApprovalCard,
 };
 
 type Rendered = typeof defaultRichControlRenderers;

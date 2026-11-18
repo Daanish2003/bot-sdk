@@ -1,6 +1,6 @@
 import type { SentFile } from "@botsdk/client/bot/files";
 import { parseMessage, plainText } from "@botsdk/client/message-format";
-import { isChannelAnswerable } from "@botsdk/client/bot/rich-control";
+import { isApproval } from "@botsdk/client/bot/rich-control";
 import type { BotMessage } from "@botsdk/client/bot/turn";
 
 import type { OutboundMail } from "./email";
@@ -57,44 +57,17 @@ export function emailBody(
     case "demonstration":
       paragraphs.push(link("Show me in the app"));
       break;
-    case "release_approval":
-    case "fact_approval":
-      paragraphs.push(link("Review it in the app"));
-      break;
     case undefined:
       break;
     default:
       paragraphs.push(
-        link(
-          isChannelAnswerable(control?.kind)
-            ? "Approve or decline in the app"
-            : "Open it in the app",
-        ),
+        link(isApproval(control?.kind) ? "Approve or decline in the app" : "Open it in the app"),
       );
   }
-  return { ...mailOf(paragraphs), ...(attachments && { attachments }) };
-}
-
-/**
- * A Page as an email's body (ticket #1300): its Markdown `text`, a link `label` to `url`, and a line
- * saying nobody reads a reply, since no Bot has the address it comes from.
- */
-export function pageEmailBody(
-  text: string,
-  { label, url }: { label: string; url: string },
-): Pick<OutboundMail, "text" | "html"> {
-  return mailOf([
-    { markdown: text },
-    { text: label, href: url },
-    { text: "Replies to this address aren't read." },
-  ]);
-}
-
-/** `paragraphs` as a mail's plain text and HTML. */
-function mailOf(paragraphs: Paragraph[]): Pick<OutboundMail, "text" | "html"> {
   return {
     text: paragraphs.map(paragraphText).filter(Boolean).join("\n\n"),
     html: paragraphs.map(htmlOf).filter(Boolean).join("\n") || "<p></p>",
+    ...(attachments && { attachments }),
   };
 }
 

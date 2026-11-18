@@ -354,14 +354,12 @@ A provider is the seam to a mail service (`EmailProvider`: `parseInbound` and `s
 
 ### Real sending and receiving: the domain
 
-Mailpit needs no domain. A Host that mails real people sets up the domain it passes as `domain` (spec #1176, ticket #1347); the SDK builds none of it. With your mail service's own values:
+Mailpit needs no domain. A Host that mails real people sets up the domain it passes as `domain`; the SDK builds none of it. With your mail service's own values:
 
 - **MX:** point the domain's MX records at the service, so it receives mail for every address on the domain, and set its inbound webhook to `POST <basePath>/channels/email`.
 - **SPF:** a TXT record on the domain that lists the service as an allowed sender (`v=spf1 include:<service's include> ~all`).
 - **DKIM:** the service's DKIM key as the TXT or CNAME records it names, so each mail it sends is signed for your domain.
 - **DMARC:** a TXT record at `_dmarc.<domain>`. Start with `v=DMARC1; p=none; rua=mailto:<you>` to watch reports, then move to `quarantine` or `reject` once SPF and DKIM align.
-
-A Representative's replies go out from its address on this domain, in the Customer's subject thread: a "Re:" subject, `In-Reply-To` the Customer's latest mail, and `References` the whole chain. Without DKIM and SPF for the domain they are likely to land in spam, and the domain's own DMARC policy says nothing of the Customer's: a Customer counts as verified only when their domain publishes an enforcing policy and the mail passes it.
 
 ## Keeping a Bot's thread in sync: `conversations.changes`
 

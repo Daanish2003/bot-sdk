@@ -47,20 +47,9 @@ const fakeMailSchema = z.object({
       }),
     ),
   authentication: z
-    .object({
-      spf: verdict,
-      dkim: verdict,
-      dmarc: verdict,
-      dmarcPolicy: z.enum(["none", "quarantine", "reject"]).default("none"),
-    })
-    .default({ spf: "none", dkim: "none", dmarc: "none", dmarcPolicy: "none" }),
+    .object({ spf: verdict, dkim: verdict, dmarc: verdict })
+    .default({ spf: "none", dkim: "none", dmarc: "none" }),
 }) satisfies z.ZodType<InboundMail, unknown>;
-
-/** A mail as `request` takes it: its DMARC policy, like every other field, may be left out. */
-type FakeMail = Partial<Omit<InboundMail, "files" | "authentication">> & {
-  authentication?: Omit<InboundMail["authentication"], "dmarcPolicy"> &
-    Partial<Pick<InboundMail["authentication"], "dmarcPolicy">>;
-};
 
 /**
  * A fake email provider (spec #761), for tests and for a Host with no mail service: an inbound
@@ -76,7 +65,7 @@ export function fakeEmailProvider(): {
    * attachments (named in `attachments` too).
    */
   request: (
-    mail?: FakeMail,
+    mail?: Partial<Omit<InboundMail, "files">>,
     files?: { name: string; contentType: string; content: string | Uint8Array }[],
   ) => Request;
 } {
@@ -92,7 +81,7 @@ export function fakeEmailProvider(): {
     },
   };
   const request = (
-    mail: FakeMail = {},
+    mail: Partial<Omit<InboundMail, "files">> = {},
     files?: { name: string; contentType: string; content: string | Uint8Array }[],
   ) =>
     new Request("http://localhost/api/chat/channels/email", {

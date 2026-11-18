@@ -1,2 +1,0 @@
-ALTER TABLE "botsdk"."representative_customer_identity" ADD COLUMN "opted_out_at" timestamp;--> statement-breakpoint
-ALTER TABLE "botsdk"."representative_customer_identity" ADD COLUMN "opt_out_source" text;

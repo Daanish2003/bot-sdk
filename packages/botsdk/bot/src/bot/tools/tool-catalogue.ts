@@ -353,7 +353,7 @@ export async function forTurn(
     ? gateReadOnly(
         listed,
         (tool) =>
-          fromFeatures.connectorNames.has(tool.name) || tool.metadata?.readOnly === false
+          fromFeatures.connectorNames.has(tool.name)
             ? refusedConnectorInReadOnly(tool)
             : refusedInReadOnly(tool.name),
         () => live.kit.liveActivity("read_only", undefined, (tx) => isReadOnlyRun(tx, turn.id)),

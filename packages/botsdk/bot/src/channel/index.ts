@@ -15,7 +15,6 @@ export {
   type MessagingButtons,
   type MessagingCall,
   type MessagingFile,
-  type MessagingReach,
   MessagingSendError,
   type MessagingUpdate,
   type MessagingWebhookRequest,
@@ -26,7 +25,6 @@ export {
 export {
   emailChannel,
   type AuthVerdict,
-  type DmarcPolicy,
   type EmailChannel,
   type EmailProvider,
   type InboundMail,
