@@ -1,3 +1,4 @@
+import { LINK_ONLY_PROVIDERS } from "@ai-chat/auth/providers";
 import { Button } from "@ai-chat/ui/components/button";
 import { Checkbox } from "@ai-chat/ui/components/checkbox";
 import { Input } from "@ai-chat/ui/components/input";
@@ -666,10 +667,12 @@ const lastSignInMessage =
   "This is your only way to sign in, so it can't be unlinked. Set a password or link another account first.";
 
 /** Connected accounts: link or unlink GitHub and Google. Better Auth refuses to unlink the last sign-in method. */
-function ConnectedAccountsSection() {
+export function ConnectedAccountsSection() {
   const queryClient = useQueryClient();
   const accounts = useLinkedAccounts();
   const rows = accounts.data ?? [];
+  // A Connection's or ChatGPT's link is no way to sign in, so it never makes GitHub unlinkable.
+  const signInRows = rows.filter((row) => !LINK_ONLY_PROVIDERS.includes(row.providerId));
 
   const link = useMutation({
     mutationFn: async (provider: (typeof socialProviders)[number]["id"]) => {
@@ -719,7 +722,7 @@ function ConnectedAccountsSection() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={rows.length === 1 || unlink.isPending}
+                  disabled={signInRows.length === 1 || unlink.isPending}
                   onClick={() => unlink.mutate(linked.id)}
                 >
                   Unlink {provider.label}

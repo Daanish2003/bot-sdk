@@ -1,3 +1,18 @@
+import { LINK_ONLY_PROVIDERS } from "@ai-chat/auth/providers";
+
+const providerNames: Record<string, string> = {
+  credential: "Password",
+  github: "GitHub",
+  google: "Google",
+};
+
+/** A user's sign-in methods, by their account rows' providers: a Connection's or ChatGPT's link is none. */
+export function signInMethodsOf(providerIds: string[]): string[] {
+  return providerIds
+    .filter((providerId) => !LINK_ONLY_PROVIDERS.includes(providerId))
+    .map((providerId) => providerNames[providerId] ?? providerId);
+}
+
 /** One row of the Admin users table: a user, with this window's spend against their Quota. */
 export type AdminUser = {
   id: string;

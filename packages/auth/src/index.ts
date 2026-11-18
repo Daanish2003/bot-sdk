@@ -11,6 +11,16 @@ import { createAccessControl } from "better-auth/plugins/access";
 import { defaultStatements } from "better-auth/plugins/admin/access";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 
+import {
+  CHATGPT_PROVIDER,
+  GITHUB_CONNECTION_PROVIDER,
+  GMAIL_PROVIDER,
+  GOOGLE_CALENDAR_PROVIDER,
+  LINK_ONLY_PROVIDERS,
+} from "./providers";
+
+export { GITHUB_CONNECTION_PROVIDER, GMAIL_PROVIDER, GOOGLE_CALENDAR_PROVIDER } from "./providers";
+
 // The Admin role holds only what the Admin view needs (spec #277). Impersonation, role changes
 // (`admin:grant` is the only way), password and email changes and user deletion are left out, so the
 // plugin's endpoints for them refuse every role, Admins included. `user` gets no admin permissions.
@@ -43,32 +53,17 @@ function chatgptOrigin(baseUrl: string): string {
   return url.origin;
 }
 
-const CHATGPT_PROVIDER = "chatgpt";
 const CHATGPT_RESOURCE = "https://api.openai.com/v1";
 
-/** The GitHub Connection's provider id (ADR 0037): its own account row, next to the sign-in one. */
-export const GITHUB_CONNECTION_PROVIDER = "github-connection";
 // What the Connection asks of GitHub, beyond the sign-in's own scopes. The OAuth App is the sign-in's.
 const GITHUB_CONNECTION_SCOPES = ["repo", "notifications", "read:org"];
 
-/** The Google Calendar Connection's provider id (ADR 0037), on the Google sign-in's client. */
-export const GOOGLE_CALENDAR_PROVIDER = "google-calendar";
 const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 ];
 
-/** The Gmail Connection's provider id (ADR 0037), on the Google sign-in's client. */
-export const GMAIL_PROVIDER = "gmail";
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"];
-
-// Providers a user links on purpose but never signs in with: they don't count as a way to sign in.
-const LINK_ONLY_PROVIDERS = [
-  CHATGPT_PROVIDER,
-  GITHUB_CONNECTION_PROVIDER,
-  GOOGLE_CALENDAR_PROVIDER,
-  GMAIL_PROVIDER,
-];
 
 type GithubProfile = { id: number; login: string; name?: string | null; email?: string | null };
 type GoogleProfile = {
