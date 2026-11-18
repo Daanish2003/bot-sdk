@@ -225,6 +225,7 @@ describe("the Gmail tools", () => {
       draftId: "d1",
       threadId: "t9",
       to: ["ann@example.com", "bob@example.com"],
+      cc: ["cy@example.com"],
       subject: "Lunch",
     });
   });
@@ -350,17 +351,45 @@ describe("the Gmail tools", () => {
     expect(result).toEqual({ messageId: "m12", threadId: "t1" });
   });
 
+  it("send_draft reads a re-folded subject and a display name with a comma as the ones given", async () => {
+    const encoded = (text: string) => `=?UTF-8?B?${Buffer.from(text).toString("base64")}?=`;
+    const { sent, tools } = draftGoogle([
+      header("To", `"Doé, Jane" <jane@example.com>, Doé, Ann <ann@example.com>`),
+      header("Cc", "cy@example.com"),
+      header("Subject", `${encoded("Grüße an al")}\r\n ${encoded("le")}`),
+    ]);
+
+    await run(tools.send_draft, {
+      draftId: "d2",
+      to: ["jane@example.com", "Ann <ann@example.com>"],
+      cc: ["cy@example.com"],
+      subject: "Grüße an alle",
+    });
+
+    expect(sent.map(({ method }) => method)).toEqual(["GET", "POST"]);
+  });
+
+  const draft = [
+    header("To", "bob@example.com, ann@example.com"),
+    header("Cc", "cy@example.com"),
+    header("Subject", "Re: Friday"),
+  ];
+  const named = {
+    to: ["bob@example.com", "ann@example.com"],
+    cc: ["cy@example.com"],
+    subject: "Re: Friday",
+  };
+
   it.each([
-    ["another recipient", { to: ["eve@example.com"], subject: "Re: Friday" }],
-    ["a recipient fewer", { to: ["bob@example.com"], subject: "Re: Friday" }],
-    ["another subject", { to: ["bob@example.com", "ann@example.com"], subject: "Friday" }],
+    ["another recipient", draft, { ...named, to: ["eve@example.com"] }],
+    ["a recipient fewer", draft, { ...named, to: ["bob@example.com"] }],
+    ["another Cc", draft, { ...named, cc: [] }],
+    ["another subject", draft, { ...named, subject: "Friday" }],
+    ["a Bcc", [...draft, header("Bcc", "eve@example.com")], named],
   ])(
     "send_draft refuses a draft with %s than the call names, and sends nothing",
-    async (_name, given) => {
-      const { sent, tools } = draftGoogle([
-        header("To", "bob@example.com, ann@example.com"),
-        header("Subject", "Re: Friday"),
-      ]);
+    async (_name, headers, given) => {
+      const { sent, tools } = draftGoogle(headers);
 
       const failure = run(tools.send_draft, { draftId: "d2", ...given });
 
@@ -381,6 +410,7 @@ describe("the Gmail tools", () => {
       draftId: "d2",
       threadId: "t1",
       to: ["bob.reply@example.com"],
+      cc: [],
       subject: "Re: Friday",
     });
   });

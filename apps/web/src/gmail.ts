@@ -105,19 +105,28 @@ function headerValue(value: string): string {
 /** A header from the thread, folded onto one line: its line breaks can't start headers of their own. */
 const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
 
-/** A header value as Gmail gives it, its encoded words (as `encodedWord` makes them) decoded. */
+/**
+ * A header value as Gmail gives it, its UTF-8 encoded words decoded (the space between two of them
+ * dropped, as RFC 2047 says) and its whitespace collapsed, so a re-folded subject still compares.
+ */
 const decodedWord = (value: string) =>
-  value.replace(/=\?UTF-8\?B\?([A-Za-z0-9+/=]*)\?=/gi, (_, data: string) =>
-    Buffer.from(data, "base64").toString("utf8"),
+  oneLine(
+    value
+      .replace(/\?=\s+=\?/g, "?==?")
+      .replace(/=\?UTF-8\?B\?([A-Za-z0-9+/=]*)\?=/gi, (_, data: string) =>
+        Buffer.from(data, "base64").toString("utf8"),
+      ),
   );
 
-/** The addresses in a recipient list, each without its display name, lowercased and sorted. */
+/**
+ * The email addresses in a recipient list, lowercased and sorted. Only the addresses are read, so a
+ * display name, with a comma in it or not, never counts as one.
+ */
 const addressesOf = (list: string) =>
-  list
-    .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
-    .map((each) => (/<([^>]*)>/.exec(each)?.[1] ?? each).trim().toLowerCase())
-    .filter(Boolean)
-    .sort();
+  (list.match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []).map((each) => each.toLowerCase()).sort();
+
+const sameAddresses = (header: string | undefined, given: string[]) =>
+  addressesOf(header ?? "").join(",") === addressesOf(given.join(", ")).join(",");
 
 /** An RFC 2822 plain-text message, base64url encoded as Gmail's `raw` field wants it. */
 function rawMessage(fields: {
@@ -209,6 +218,7 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
         draftId: z.string(),
         threadId: z.string().optional(),
         to: z.array(z.string()),
+        cc: z.array(z.string()),
         subject: z.string(),
       }),
       execute: async (input, { accessToken, signal }) => {
@@ -263,6 +273,7 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
           draftId: draft.id,
           threadId: draft.message?.threadId,
           to: fields.to,
+          cc: fields.cc ?? [],
           subject: fields.subject,
         };
       },
@@ -270,11 +281,13 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
     {
       name: "send_draft",
       description:
-        "Send a draft made with create_draft, as it stands. Give its recipients and subject as " +
-        "create_draft answered them: a draft that doesn't have them is not sent.",
+        "Send a draft made with create_draft, as it stands. Give its recipients (to and cc) and " +
+        "subject as create_draft answered them: a draft that doesn't have exactly them, or has a " +
+        "Bcc, is not sent.",
       inputSchema: z.object({
         draftId: z.string(),
         to: z.array(z.string()).min(1).meta({ description: "The draft's recipients." }),
+        cc: z.array(z.string()).default([]).meta({ description: "The draft's Cc recipients." }),
         subject: z.string().meta({ description: "The draft's subject." }),
       }),
       outputSchema: z.object({ messageId: z.string(), threadId: z.string().optional() }),
@@ -285,11 +298,13 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
           `${api}/drafts/${encodeURIComponent(input.draftId)}?format=metadata`,
           { signal },
         )) as { message?: GoogleMessage };
-        const to = addressesOf(headerOf(draft.message?.payload, "To") ?? "");
-        const subject = decodedWord(headerOf(draft.message?.payload, "Subject") ?? "");
+        const payload = draft.message?.payload;
+        const subject = decodedWord(headerOf(payload, "Subject") ?? "");
         if (
-          to.join(",") !== addressesOf(input.to.join(", ")).join(",") ||
-          subject !== input.subject
+          !sameAddresses(headerOf(payload, "To"), input.to) ||
+          !sameAddresses(headerOf(payload, "Cc"), input.cc) ||
+          addressesOf(headerOf(payload, "Bcc") ?? "").length > 0 ||
+          subject !== oneLine(input.subject)
         ) {
           throw new Error(
             "The draft's recipients or subject aren't the ones given, so it was not sent.",
