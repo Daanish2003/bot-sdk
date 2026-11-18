@@ -170,6 +170,37 @@ describe("createGuardedFetch", () => {
     expect(await response.text()).toBe("arrived");
   });
 
+  it("keeps the authorization and cookie on a same-origin redirect, and drops them across origins", async () => {
+    const seen: Record<string, { authorization?: string; cookie?: string }> = {};
+    handler = (req, res) => {
+      seen[`${req.headers.host?.split(":")[0]}${req.url}`] = {
+        authorization: req.headers.authorization,
+        cookie: req.headers.cookie,
+      };
+      if (req.url === "/start") {
+        res.writeHead(302, { location: "/same" });
+        res.end();
+      } else if (req.url === "/same") {
+        res.writeHead(307, { location: `http://other.test:${port}/end` });
+        res.end();
+      } else {
+        res.end("arrived");
+      }
+    };
+    const fetch = guard({ resolve: async () => [publicAddress] });
+
+    const response = await fetch(`http://first.test:${port}/start`, {
+      headers: { authorization: "Bearer user-token", cookie: "session=1", accept: "text/plain" },
+    });
+
+    expect(await response.text()).toBe("arrived");
+    expect(seen["first.test/same"]).toEqual({
+      authorization: "Bearer user-token",
+      cookie: "session=1",
+    });
+    expect(seen["other.test/end"]).toEqual({ authorization: undefined, cookie: undefined });
+  });
+
   it("refuses a redirect to a literal private address", async () => {
     handler = (_req, res) => {
       res.writeHead(302, { location: "http://169.254.169.254/latest/meta-data/" });
