@@ -16,11 +16,13 @@ const token = "linear-access-token";
 
 const linear: McpConnection = { key: "linear", name: "Linear", mcp: { url: fakeMcpResource } };
 
+const sentryUrl = "https://sentry.test/mcp";
+
 /** A second Connection whose server never answers: its endpoint is down for good. */
 const sentry: McpConnection = {
   key: "sentry",
   name: "Sentry",
-  mcp: { url: "https://sentry.test/mcp" },
+  mcp: { url: sentryUrl },
 };
 
 const issueTools: FakeMcpTool[] = [
@@ -44,7 +46,7 @@ async function setup({
   const server = createFakeMcpServer({ accepts: (sent) => sent === token, tools: issueTools });
   const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.origin === new URL(sentry.mcp.url).origin) {
+    if (url.origin === new URL(sentryUrl).origin) {
       return Promise.resolve(new Response("Service unavailable", { status: 503 }));
     }
     return server.fetch(input, init);

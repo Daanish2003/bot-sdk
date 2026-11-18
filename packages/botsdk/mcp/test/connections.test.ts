@@ -48,3 +48,45 @@ describe("checkConnections", () => {
     ).not.toThrow();
   });
 });
+
+describe("checkConnections on a Connection's source", () => {
+  const listIssues = {
+    name: "list_issues",
+    description: "Lists issues.",
+    inputSchema: { type: "object", properties: {} },
+    outputSchema: { type: "object", properties: {} },
+    execute: async () => ({}),
+  };
+
+  it("accepts a Connection whose tools the Host wrote", () => {
+    expect(() =>
+      checkConnections([{ key: "linear", name: "Linear", tools: [listIssues] }]),
+    ).not.toThrow();
+  });
+
+  it("refuses a Host tool name that isn't a plain name, and a repeated one", () => {
+    const named = (name: string) => ({ ...listIssues, name });
+    expect(() =>
+      checkConnections([{ key: "linear", name: "Linear", tools: [named("list issues")] }]),
+    ).toThrow(
+      /Connection "linear" has a tool name that isn't letters, digits, "_" or "-": "list issues"/,
+    );
+    expect(() =>
+      checkConnections([{ key: "linear", name: "Linear", tools: [listIssues, listIssues] }]),
+    ).toThrow(/Connection "linear" has two tools named "list_issues"/);
+  });
+
+  it("refuses a Connection with both an MCP server and tools the Host wrote", () => {
+    const both = { ...connection("https://mcp.example.com/mcp"), tools: [listIssues] };
+    expect(() => checkConnections([both as unknown as McpConnection])).toThrow(
+      /Connection "linear" has both an MCP server and tools the Host wrote/,
+    );
+  });
+
+  it("refuses a Connection with neither an MCP server nor tools the Host wrote", () => {
+    const neither = { key: "linear", name: "Linear" };
+    expect(() => checkConnections([neither as unknown as McpConnection])).toThrow(
+      /Connection "linear" has neither an MCP server nor tools the Host wrote/,
+    );
+  });
+});

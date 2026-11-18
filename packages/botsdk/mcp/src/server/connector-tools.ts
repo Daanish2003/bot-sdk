@@ -161,10 +161,13 @@ export async function connectorTools({
         if (context?.abortSignal?.aborted || signal.aborted) throw caught;
         const message = caught instanceof Error ? caught.message : String(caught);
         // A Connection that is down or unauthorised needs reconnecting; any other failure is the
-        // call's answer, fenced like a result.
-        return isConnectionFailure(caught)
-          ? { error: reconnectError(connection) }
-          : { error: fenced(message) };
+        // call's answer, fenced like a result. A Host tool says so itself, with a
+        // `ConnectionBrokenError`, known by its name should two copies of this package be loaded.
+        const broken =
+          tool.metadata?.hostTool === true
+            ? caught instanceof Error && caught.name === "ConnectionBrokenError"
+            : isConnectionFailure(caught);
+        return broken ? { error: reconnectError(connection) } : { error: fenced(message) };
       }
     };
     return [

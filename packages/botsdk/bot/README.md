@@ -618,7 +618,24 @@ mcp({
 ```
 
 - **The Host owns the sign-in.** The SDK runs no OAuth and stores no tokens: your auth links the app, stores and refreshes its tokens, and answers the `connection` hook. Each MCP client sends the hook's token as a Bearer token, with no OAuth discovery or client registration. Without the hook, nothing is connected.
-- **`connections`**: `key` names the Connection in its tools (`<key>_<tool>`) and in the hook (letters, digits, `_` and `-`). `mcp.url` is a Streamable HTTP endpoint on HTTPS; a `url` that isn't HTTPS, a bad key or a repeated one throws when `createBotSdk` runs. `mcp.tools` is an allowlist, `approvalFree` skips Auto-review and `readOnlyTools` adds to the tools the server marks `readOnlyHint`.
+- **`connections`**: `key` names the Connection in its tools (`<key>_<tool>`) and in the hook (letters, digits, `_` and `-`). Its tools come from one source: `mcp` or `tools`. `mcp.url` is a Streamable HTTP endpoint on HTTPS; a `url` that isn't HTTPS, a bad key, a repeated one, or a Connection with both sources or neither throws when `createBotSdk` runs. `mcp.tools` is an allowlist, `approvalFree` skips Auto-review and `readOnlyTools` adds to the tools the server marks `readOnlyHint` (for Host tools, it is the only mark).
+- **Host tools:** `tools` lists tools you wrote, each a `HostTool` with a `name`, a `description`, an `inputSchema`, an `outputSchema` and `execute(input, { accessToken, signal })`. A Standard Schema (such as Zod's) checks the input before `execute` runs and its result after. Throw `ConnectionBrokenError` (from `@botsdk/mcp`) when the app refuses the token, and the Bot is told to have the user reconnect; any other throw is the call's answer.
+
+```ts
+mcp({
+  connections: [
+    {
+      key: "calendar",
+      name: "Calendar",
+      tools: [listEvents],
+      approvalFree: ["list_events"],
+      readOnlyTools: ["list_events"],
+    },
+  ],
+  connection: (userId, key) => tokenFor(userId, key),
+});
+```
+
 - **State:** `sdk.mcp.listConnections({ userId })` gives each Connection's state from the hook: `connected`, `reconnect` or `disconnected`. A failing hook is logged and reads as not connected.
 - **Settings:** `<ConnectionsSection host={{ connect, disconnect }} />` lists them on the Keys page, hidden when you declare none. `connect(key)` and `disconnect(key)` are yours; Reconnect calls `connect` again.
 - **Tools:** `sdk.mcp.forUser(userId).tools({ signal })` gives a user's connected Connections' tools, named `<key>_<tool>`, with their clients open until `signal` aborts, skipping a server that is down or refuses the token. A Bot's call to a tool whose Connection needs reconnecting, isn't linked or answers HTTP 401 gets an error telling it to ask the user to reconnect.

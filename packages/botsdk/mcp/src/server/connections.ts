@@ -1,3 +1,5 @@
+import type { SchemaInput } from "@tanstack/ai";
+
 import { isAllowListed } from "@botsdk/bot/lib/guarded-fetch";
 import type { BotSdkContext } from "@botsdk/bot/plugin";
 import type { ConnectionSummary } from "../shared/contract";
@@ -5,24 +7,60 @@ import type { ConnectionSummary } from "../shared/contract";
 export type { ConnectionSummary };
 
 /**
- * One app the Host offers its users a Connection to (`mcp({ connections })`, ADR 0037). The Host
- * runs the sign-in and holds the tokens; the Bot SDK asks for them through the `connection` hook.
+ * A tool the Host wrote for a Connection (ADR 0037). `execute` gets the input, checked against
+ * `inputSchema`, and the Connection's access token; its result is checked against `outputSchema`.
+ * Each check runs when the schema is a Standard Schema, such as Zod's. Throwing a
+ * `ConnectionBrokenError` says the app refused the token, and the call is answered with the
+ * reconnect error; any other throw is the call's answer.
  */
-export type McpConnection = {
-  /** Names the Connection in its tools (`<key>_<tool>`) and in the hook. Letters, digits, `_` and `-`. */
-  key: string;
+export type HostTool = {
+  /** Offered to a Bot as `<key>_<name>`. */
   name: string;
-  /** The MCP server the tools come from, sent the Connection's access token as a Bearer token. */
+  description: string;
+  inputSchema: SchemaInput;
+  outputSchema: SchemaInput;
+  execute: (
+    // oxlint-disable-next-line typescript/no-explicit-any -- each tool's own input, from its schema
+    input: any,
+    context: { accessToken: string; signal?: AbortSignal },
+  ) => unknown;
+};
+
+/**
+ * What a Host tool throws when the app refused its Connection's token (HTTP 401, a revoked grant):
+ * the call is answered with the reconnect error.
+ */
+export class ConnectionBrokenError extends Error {
+  override name = "ConnectionBrokenError";
+}
+
+/** The MCP server a Connection's tools come from, sent its access token as a Bearer token. */
+type McpSource = {
   mcp: {
     /** The server's Streamable HTTP endpoint. HTTPS only. */
     url: string;
     /** Tool names to offer from this server; unset, all of them. */
     tools?: string[];
   };
+  tools?: never;
+};
+
+/** The tools the Host wrote for a Connection. */
+type HostToolsSource = { tools: HostTool[]; mcp?: never };
+
+/**
+ * One app the Host offers its users a Connection to (`mcp({ connections })`, ADR 0037). The Host
+ * runs the sign-in and holds the tokens; the Bot SDK asks for them through the `connection` hook.
+ * Its tools come from one source: an MCP server (`mcp`) or tools the Host wrote (`tools`).
+ */
+export type McpConnection = (McpSource | HostToolsSource) & {
+  /** Names the Connection in its tools (`<key>_<tool>`) and in the hook. Letters, digits, `_` and `-`. */
+  key: string;
+  name: string;
   /** Tool names that need no approval: `needsApproval` is false on them. */
   approvalFree?: string[];
   /**
-   * Tool names that count as read-only in a read-only run (spec #1024), besides the tools the
+   * Tool names that count as read-only in a read-only run (spec #1024), besides the tools an MCP
    * server marks `readOnlyHint: true`. Every other tool, one with no hint included, is refused
    * there.
    */
@@ -47,9 +85,10 @@ type Deps = Pick<BotSdkContext, "logger">;
 const keyPattern = /^[A-Za-z0-9_-]+$/;
 
 /**
- * Throws on a Connection the SDK can't offer: a key that isn't a plain name, a repeated key, or a
- * URL that isn't HTTPS. The test allowance (`allowHosts`, `createBotSdk({ fetchAllowHosts })`) lets
- * a listed host be plain HTTP, and only that host.
+ * Throws on a Connection the SDK can't offer: a key that isn't a plain name, a repeated key, both
+ * sources or neither, a Host tool name that is not a plain name or is repeated, or an MCP server
+ * URL that is not HTTPS. The test allowance (`allowHosts`, `createBotSdk({ fetchAllowHosts })`)
+ * lets a listed host be plain HTTP, and only that host.
  */
 export function checkConnections(
   connections: readonly McpConnection[],
@@ -63,6 +102,27 @@ export function checkConnections(
     if (keys.has(connection.key))
       throw new Error(`Two Connections share the key "${connection.key}"`);
     keys.add(connection.key);
+    // The types allow one source; a Host in plain JavaScript, or casting, can still give two or none.
+    const { key, mcp, tools } = connection as { key: string; mcp?: unknown; tools?: unknown };
+    if (mcp && tools) {
+      throw new Error(`Connection "${key}" has both an MCP server and tools the Host wrote`);
+    }
+    if (!mcp && !tools) {
+      throw new Error(`Connection "${key}" has neither an MCP server nor tools the Host wrote`);
+    }
+    if (connection.tools) {
+      const names = new Set<string>();
+      for (const { name } of connection.tools) {
+        if (!keyPattern.test(name)) {
+          throw new Error(
+            `Connection "${key}" has a tool name that isn't letters, digits, "_" or "-": "${name}"`,
+          );
+        }
+        if (names.has(name)) throw new Error(`Connection "${key}" has two tools named "${name}"`);
+        names.add(name);
+      }
+      continue;
+    }
     let url: URL;
     try {
       url = new URL(connection.mcp.url);

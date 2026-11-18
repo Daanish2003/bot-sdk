@@ -7,7 +7,7 @@ import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { claimJob, inProcessRunner, type JobRunner } from "@botsdk/bot/runner/internal";
 import { mcp } from "../../src";
-import type { McpConnection } from "../../src";
+import type { HostTool, McpConnection } from "../../src";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { createFakeAdapter, round, toolCall } from "@botsdk/testing/fake-adapter";
 import {
@@ -55,11 +55,19 @@ const call = (name: string, input: unknown) => toolCall({ id: `call-${name}`, na
 // Sunday 18 October 2026, 11:00 in London; the Routine fires on Monday 19 October at 11:00.
 const sunday = new Date("2026-10-18T10:00:00.000Z");
 
-/** Runs the Monday fire of a Routine created `readOnly` or not, whose Turn runs every Connector tool. */
-async function fireRoutine(readOnly: boolean) {
+/**
+ * Runs the Monday fire of a Routine created `readOnly` or not, whose Turn runs every Connector tool:
+ * Linear's over the fake MCP server, or `connection`'s tools, which the Host wrote.
+ */
+async function fireRoutine(readOnly: boolean, connection: McpConnection = linear) {
+  const names = connection.tools?.map((tool) => tool.name) ?? tools.map((tool) => tool.name);
   const timer = fakeJobClock(sunday);
   const run = (name: string) =>
-    toolCall({ id: `call-${name}`, name: "run_tool", input: { name: `linear_${name}`, args: {} } });
+    toolCall({
+      id: `call-${name}`,
+      name: "run_tool",
+      input: { name: `${connection.key}_${name}`, args: {} },
+    });
   const fake = createFakeAdapter({
     rounds: [
       round(
@@ -71,7 +79,7 @@ async function fireRoutine(readOnly: boolean) {
         }),
       ),
       round(),
-      round(...tools.map((tool) => run(tool.name))),
+      round(...names.map(run)),
       round(),
     ],
   });
@@ -86,7 +94,7 @@ async function fireRoutine(readOnly: boolean) {
   });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
-    features: [mcp({ connections: [linear], connection: () => ({ accessToken: token }) })],
+    features: [mcp({ connections: [connection], connection: () => ({ accessToken: token }) })],
     fetch: server.fetch,
     jobs,
     clock: timer.clock.now,
@@ -155,6 +163,33 @@ describe("Connector tools in a read-only run", () => {
     expect(results.create_issue).toBe(refused);
     expect(results.update_issue).toBe(refused);
     expect(server.calls.map((each) => each.name).sort()).toEqual(["get_team", "list_issues"]);
+  });
+
+  it("runs a Host tool named in readOnlyTools, and refuses the rest", async () => {
+    const ran: string[] = [];
+    const tool = (name: string): HostTool => ({
+      name,
+      description: `The Host's ${name} tool.`,
+      inputSchema: { type: "object", properties: {} },
+      outputSchema: { type: "object", properties: {} },
+      execute: () => {
+        ran.push(name);
+        return {};
+      },
+    });
+    const calendar: McpConnection = {
+      key: "calendar",
+      name: "Google Calendar",
+      tools: [tool("list_events"), tool("create_event")],
+      approvalFree: ["list_events", "create_event"],
+      readOnlyTools: ["list_events"],
+    };
+
+    const { results } = await fireRoutine(true, calendar);
+
+    expect(results.list_events).not.toBe(refused);
+    expect(results.create_event).toBe(refused);
+    expect(ran).toEqual(["list_events"]);
   });
 
   it("changes nothing outside a read-only run", async () => {
