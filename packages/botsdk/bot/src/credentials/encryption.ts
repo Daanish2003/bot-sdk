@@ -3,10 +3,10 @@ import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } f
 import type { Credentials } from "../models/internal";
 
 /**
- * Provider credentials, Tool credentials, Connection tokens, a user's Secrets and Channel accounts'
- * credentials each get their own key (ADR 0010).
+ * Provider credentials, Tool credentials, a user's Secrets and Channel accounts' credentials each
+ * get their own key (ADR 0010).
  */
-export type CredentialKind = "provider" | "tool" | "connection" | "secret" | "channel";
+export type CredentialKind = "provider" | "tool" | "secret" | "channel";
 
 type Options = {
   /** `keyEncryptionSecrets`: the first encrypts, every entry decrypts. Never empty. */
@@ -30,7 +30,6 @@ const KID_LENGTH = 8;
 const kindInfo: Record<CredentialKind, string> = {
   provider: "ai-chat provider credentials",
   tool: "ai-chat tool credentials",
-  connection: "ai-chat connection tokens",
   secret: "ai-chat secrets",
   channel: "ai-chat channel credentials",
 };

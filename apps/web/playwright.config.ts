@@ -1,12 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { baseURL, mcpBaseURL, serverEnv } from "./e2e/env";
+import { baseURL, serverEnv } from "./e2e/env";
 
 /**
  * End-to-end tests against the production build, its own database (`e2e/start-server.ts`) and
  * a fake Ollama host (`apps/web/e2e/support/fake-ollama.ts`), so no Provider key is needed. `*.phone.spec.ts`
- * runs on a phone, the rest on a desktop browser. `mcp.spec.ts` runs against the server that
- * offers one MCP server (`mcpBaseURL`), and the rest against the server that offers none.
+ * runs on a phone, the rest on a desktop browser.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -37,23 +36,14 @@ export default defineConfig({
       name: "desktop",
       // redis.spec.ts needs REDIS_URL, which only a run with Redis provides.
       testIgnore: process.env.REDIS_URL
-        ? [/\.phone\.spec\.ts$/, /mcp\.spec\.ts$/]
-        : [/\.phone\.spec\.ts$/, /redis\.spec\.ts$/, /mcp\.spec\.ts$/],
+        ? [/\.phone\.spec\.ts$/]
+        : [/\.phone\.spec\.ts$/, /redis\.spec\.ts$/],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
-    },
-    {
-      name: "mcp",
-      testMatch: /mcp\.spec\.ts$/,
-      use: {
-        ...devices["Desktop Chrome"],
-        viewport: { width: 1440, height: 900 },
-        baseURL: mcpBaseURL,
-      },
     },
     { name: "phone", testMatch: /\.phone\.spec\.ts$/, use: { ...devices["Pixel 7"] } },
   ],
-  // E2E_EXTERNAL_SERVER=1: CI runs the suite against the image's containers already listening on
-  // `baseURL` and `mcpBaseURL` (ci.yml), so Playwright starts none.
+  // E2E_EXTERNAL_SERVER=1: CI runs the suite against the image's container already listening on
+  // `baseURL` (ci.yml), so Playwright starts none.
   webServer: process.env.E2E_EXTERNAL_SERVER
     ? undefined
     : {

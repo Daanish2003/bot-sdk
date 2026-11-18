@@ -8,7 +8,7 @@ services:
       dockerfile: apps/web/Dockerfile
     image: ai-chat-web
     command: ["node", "scripts/migrate.ts"]
-    # The same env as web: botsdk.config.ts lists its features from E2B_* and MCP_SERVER_*.
+    # The same env as web: botsdk.config.ts lists its features from E2B_*.
     env_file:
       - path: apps/web/.env
         required: false

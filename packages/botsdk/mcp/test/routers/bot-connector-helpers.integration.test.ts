@@ -5,17 +5,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { botHelper, botReview, botTurn } from "@botsdk/bot/storage";
 import { uuidv7 } from "@botsdk/bot/lib/uuidv7";
 import { mcp } from "../../src";
-import type { McpServerConfig } from "../../src";
+import type { McpConnection } from "../../src";
 import { saveCredentials } from "@botsdk/bot/models/internal";
 import { inProcessRunner, type JobRunner, claimJob } from "@botsdk/bot/runner/internal";
 import { createTestSdk, type TestDeps } from "@ai-chat/test-support/deps";
 import { createFakeAdapter, round, text, toolCall } from "@botsdk/testing/fake-adapter";
-import { createFakeMcpAuth, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-auth";
-import { createFakeMcpServer } from "@ai-chat/test-support/fake-mcp-server";
+import { createFakeMcpServer, fakeMcpResource } from "@ai-chat/test-support/fake-mcp-server";
 import { fakeReviewer } from "@botsdk/testing/fake-reviewer";
 import { fakeJobClock } from "@ai-chat/test-support/jobs";
 import { followSend } from "@ai-chat/test-support/follow-send";
-import { chatRpc, createTestChat } from "@ai-chat/test-support/sdk";
+import { chatRpc } from "@ai-chat/test-support/sdk";
 import { getTestDb } from "@ai-chat/test-support/test-database";
 import { insertUser } from "@ai-chat/test-support/users";
 import { fakeComputerProvider } from "@botsdk/testing/fake-computer-provider";
@@ -24,19 +23,14 @@ vi.setConfig({ testTimeout: 30_000 });
 
 const model = "openai:gpt-6-luna";
 const silent = { error: () => {} };
-const basePath = "http://localhost/api/chat";
-const clientId = "ai-chat-test";
-const clientSecret = "test-client-secret";
+const token = "linear-access-token";
 
-const linear: McpServerConfig = {
+const linear: McpConnection = {
   key: "linear",
   name: "Linear",
-  url: fakeMcpResource,
-  oauth: { clientId, clientSecret },
+  mcp: { url: fakeMcpResource },
   approvalFree: ["list_issues"],
 };
-
-const mcpOrigin = new URL(fakeMcpResource).origin;
 
 type Round = Parameters<typeof createFakeAdapter>[0]["rounds"][number];
 
@@ -83,16 +77,10 @@ async function world({
         : turnFake.adapter.chatStream(options),
   } as AnyTextAdapter;
   const reviewer = fakeReviewer();
-  const auth = createFakeMcpAuth({ clientId, clientSecret });
   const server = createFakeMcpServer({
-    auth,
+    accepts: (sent) => sent === token,
     tools: [{ name: "list_issues" }, { name: "create_issue" }],
   });
-  const fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    const isEndpoint = url.origin === mcpOrigin && url.pathname === "/mcp";
-    return (isEndpoint ? server.fetch : auth.fetch)(input, init);
-  }) as typeof globalThis.fetch;
   const timer = at ? fakeJobClock(at) : undefined;
   let deps: TestDeps | undefined;
   const jobs = inProcessRunner({
@@ -104,8 +92,8 @@ async function world({
   });
   deps = createTestSdk({
     computer: fakeComputerProvider().provider,
-    features: [mcp({ servers: [linear] })],
-    fetch,
+    features: [mcp({ connections: [linear], connection: () => ({ accessToken: token }) })],
+    fetch: server.fetch,
     jobs,
     adapterFor: () => adapter,
     reviewAdapterFor: () => reviewer.adapter,
@@ -121,15 +109,6 @@ async function world({
     hint: "…-key",
     verified: true,
   });
-  const chat = createTestChat({ user, deps });
-  const start = await chat.fetch(
-    new Request(`${basePath}/mcp/connect?server=linear&returnTo=/settings/keys`, {
-      redirect: "manual",
-    }),
-  );
-  await chat.fetch(
-    new Request(auth.approve(start.headers.get("location") ?? ""), { redirect: "manual" }),
-  );
   const client = chatRpc({ user, deps });
   const { id: botId } = await client.bots.create({ name: "Ada", model });
   const runDue = async () => {

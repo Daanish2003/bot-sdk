@@ -94,7 +94,15 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
       await response.body?.cancel();
       if (hops >= maxRedirects) throw new Error(`Stopped after ${maxRedirects} redirects`);
 
-      url = new URL(location, url);
+      const next = new URL(location, url);
+      if (next.origin !== url.origin) {
+        // A Bearer token or a cookie is for the origin it was sent to, never one a redirect names.
+        headers = new Headers(headers);
+        headers.delete("authorization");
+        headers.delete("cookie");
+        headers.delete("proxy-authorization");
+      }
+      url = next;
       if (response.status === 303 || (method === "POST" && response.status < 307)) {
         method = "GET";
         body = undefined;

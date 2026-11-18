@@ -29,8 +29,6 @@ import { sentFileBlobKey, uploadBotFile } from "../src/bot/conversation";
 import { loadSecretValues, secretEncryption } from "../src/bot/safety";
 import type { BotExport } from "../src/bot/conversation";
 import { computerBlobKey } from "../src/computer/internal";
-import { readTokens, saveTokens } from "@botsdk/mcp/server/connections";
-import { mcpConnection } from "@botsdk/mcp/server/db/connection";
 import { mcp } from "@botsdk/mcp";
 import { profilePath } from "@botsdk/memory/server/bot-memory";
 import { memorySettings } from "@botsdk/memory/server/schema";
@@ -57,8 +55,8 @@ function fakeBlobStore() {
   return { store, held };
 }
 
-/** Every table of the composed schema and the mcp and memory features' with a `user_id` column, with that column. */
-const userTables = [...Object.values(schema), mcpConnection, memorySettings].flatMap((value) => {
+/** Every table of the composed schema and the memory feature's with a `user_id` column, with that column. */
+const userTables = [...Object.values(schema), memorySettings].flatMap((value) => {
   if (!is(value, PgTable)) return [];
   const { name, columns } = getTableConfig(value);
   const column = columns.find((candidate) => candidate.name === "user_id");
@@ -93,7 +91,7 @@ async function activeJobsNaming(ids: string[]) {
 
 /**
  * A user with a row in every table above: a Bot with a Message, an ended Demonstration, a Secret, a Custom Rule, notification settings, a push subscription, a file uploaded and not yet sent to the Bot, a
- * Computer, the Memory switch, a Connection, credentials and usage. Returns the blob keys and ids
+ * Computer, the Memory switch, credentials and usage. Returns the blob keys and ids
  * it made.
  */
 async function seedEverything(
@@ -202,7 +200,6 @@ async function seedEverything(
   });
 
   await getTestDb().insert(memorySettings).values({ userId: user.id, enabled: false });
-  await saveTokens(deps, user.id, "linear", { accessToken: "t", tokenType: "Bearer", scope: "" });
   await getTestDb()
     .insert(modelSettings)
     .values({ userId: user.id, imageModel: "openai:gpt-image-2" });
@@ -473,7 +470,7 @@ describe("rotateKeys across plugins", () => {
   const keyA = "key-a-of-at-least-32-characters-long!!";
   const keyB = "key-b-of-at-least-32-characters-long!!";
 
-  it("sums the models plugin's credentials, the bot plugin's Secrets and the mcp plugin's Connection tokens", async () => {
+  it("sums the models plugin's credentials and the bot plugin's Secrets", async () => {
     const user = await insertUser();
     const old = createTestSdk({ keyEncryptionSecrets: [keyA] });
     await saveCredentials(old, user.id, {
@@ -497,11 +494,6 @@ describe("rotateKeys across plugins", () => {
         // A Secret no key can read.
         { userId: user.id, name: "BROKEN", encrypted: "v1:unknown:garbage", createdAt: new Date() },
       ]);
-    await saveTokens(old, user.id, "docs", { accessToken: "t", tokenType: "Bearer", scope: "" });
-    // A Connection whose tokens no key can read.
-    await getTestDb()
-      .insert(mcpConnection)
-      .values({ userId: user.id, serverKey: "broken", encrypted: "v1:unknown:garbage" });
     const logger = { error: vi.fn() };
     const sdk = createBotSdk({
       database: postgres({ connectionString: testDatabaseUrl }),
@@ -511,15 +503,12 @@ describe("rotateKeys across plugins", () => {
       features: [mcp()],
     });
 
-    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 3, unreadable: 2 });
-    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 0, unreadable: 2 });
+    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 2, unreadable: 1 });
+    await expect(sdk.rotateKeys()).resolves.toEqual({ reencrypted: 0, unreadable: 1 });
 
     const onlyNew = createTestSdk({ keyEncryptionSecrets: [keyB] });
     await expect(listCredentials(onlyNew, user.id)).resolves.toHaveLength(1);
     expect((await loadSecretValues(onlyNew, user.id)).get("GITHUB_TOKEN")).toBe("ghp-test-token");
-    await expect(readTokens(onlyNew, user.id, "docs")).resolves.toMatchObject({
-      tokens: { accessToken: "t" },
-    });
     expect(logger.error).toHaveBeenCalled();
   });
 });

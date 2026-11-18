@@ -15,7 +15,6 @@ import { log } from "evlog";
 register("@botsdk/bot/ts-extensionless", import.meta.url);
 
 const { createBotSdk, postgres } = await import("@botsdk/bot");
-const { mcp } = await import("@botsdk/mcp");
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("Set DATABASE_URL");
@@ -23,8 +22,8 @@ const newest = process.env.KEY_ENCRYPTION_SECRET;
 if (!newest) throw new Error("Set KEY_ENCRYPTION_SECRET");
 
 // The keyring as apps/web/src/services.ts builds it: the newest secret first, then the previous one.
-// What stores secrets: Provider and Tool credentials (models), Secrets (the Bot core) and
-// Connection tokens (the mcp feature).
+// What stores secrets: Provider and Tool credentials (models), and Secrets and Channel accounts'
+// credentials (the Bot core).
 const sdk = createBotSdk({
   database: postgres({ connectionString: databaseUrl }),
   keyEncryptionSecrets: [newest, process.env.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
@@ -32,7 +31,6 @@ const sdk = createBotSdk({
   ),
   logger: log,
   models: {},
-  features: [mcp()],
 });
 
 const result = await sdk.rotateKeys();

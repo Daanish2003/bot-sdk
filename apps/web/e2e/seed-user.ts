@@ -27,13 +27,18 @@ export type SeededUser = {
  * then sets the session cookie on `page` the way Better Auth signs it. Every call is a new user,
  * so no test waits on email or on the sign-up rate limit. With `password: false` the user has no
  * credential account (as if they signed up with GitHub or Google); `password` is then unusable.
- * `linked` adds a provider account row for each named provider (a linked GitHub or Google).
+ * `linked` adds a provider account row for each named provider (a linked GitHub or Google, or the
+ * link-only row of the GitHub, Google Calendar, Gmail or Notion Connection, with a token the app reads as it is).
  * `twoFactor` turns on two-factor sign-in with a known secret and ten backup codes, stored the way
  * Better Auth stores them, so a test can compute the codes (see `totp.ts`).
  */
 export async function seedUser(
   page: Page,
-  options: { password?: boolean; linked?: ("github" | "google")[]; twoFactor?: boolean } = {},
+  options: {
+    password?: boolean;
+    linked?: ("github" | "google" | "github-connection" | "google-calendar" | "gmail" | "notion")[];
+    twoFactor?: boolean;
+  } = {},
 ): Promise<SeededUser> {
   const seeded: SeededUser = {
     id: randomUUID(),
@@ -70,6 +75,10 @@ export async function seedUser(
         accountId: `${providerId}-${seeded.id}`,
         providerId,
         userId: seeded.id,
+        ...(providerId === "github-connection" && { accessToken: "gho_e2e_connection_token" }),
+        ...(providerId === "google-calendar" && { accessToken: "ya29_e2e_calendar_token" }),
+        ...(providerId === "gmail" && { accessToken: "ya29_e2e_gmail_token" }),
+        ...(providerId === "notion" && { accessToken: "ntn_e2e_notion_token" }),
         createdAt: now,
         updatedAt: now,
       });

@@ -60,7 +60,7 @@ import { memory } from "@botsdk/memory";
 
 export default {
   database: postgres({ connectionString: process.env.DATABASE_URL! }),
-  features: [mcp({ servers })],
+  features: [mcp({ connections, connection })],
 };
 
 // optional: features you once enabled, whose tables `--drop` may remove
@@ -106,7 +106,7 @@ const chat = createBotSdk({
 
 ```ts
 // server: construct at module load (no side effects)
-// the Model options (Host Providers, BYOK, Quota, ...) go to the `models` slot, MCP servers to
+// the Model options (Host Providers, BYOK, Quota, ...) go to the `models` slot, Connections to
 // `mcp(...)`, a background jobs runner to the `runner` slot, and the Computer's provider to the
 // `computer` slot
 const chat = createBotSdk({
@@ -114,7 +114,7 @@ const chat = createBotSdk({
   keyEncryptionSecrets,
   computer: e2bProvider({ apiKey, apiUrl, sandboxUrl, template }),
   models: {},
-  features: [memory(), skills(), knowledge(), mcp({ servers })],
+  features: [memory(), skills(), knowledge(), mcp({ connections, connection })],
   // what the SDK asks you about a user: a banned owner's Routine fires, Check-in fires, Routine
   // webhooks and inbound email start no Turns (in-process calls are trusted)
   users: { isBlocked: (userId) => isBanned(userId) },
@@ -126,7 +126,7 @@ export const handler = createHttpHandler(chat, { basePath: "/api/chat", getUser 
 // on a Node server instead, ahead of any body parser: app.use("/api/chat", toNodeHandler(handler))
 // the live view's socket, crossws hooks for <basePath>/screens/<token>/websockify (on Nitro,
 // `defineWebSocketHandler(screenSocket)` at that path); webhooks, inbound email, the live view's
-// pages and MCP OAuth callbacks are routes of the handler above
+// and pages are routes of the handler above
 export const screenSocket = createScreenSocket(chat, { basePath: "/api/chat" });
 
 // deploy step, once per deploy
@@ -389,7 +389,7 @@ for await (const _hint of hints) await sync();
 
 `sdk.bots` has `create`, `list`, `get`, `send`, `upload`, `stop`, `tasks`, `warm`, `choose` and `react`. `sdk.secrets` has `save`, `list` and `delete`; a value never comes out. `sdk.computer` has `view` and `control` for a Helper's Screen (the instance's `computer` holds these only, not the Computer provider the features get). `sdk.models` has `list`, `imageModel`, `setImageModel` and `credentials` (`list`, `openaiState`, `save`, `delete`) beside its metering, `usage` and Quota reads. `sdk.conversations.watch` resolves once its subscription is in place, so `changes` read after it misses nothing; it ends when `signal` aborts or the loop stops. Pass a `signal` unless you always iterate the hints.
 
-Each enabled feature's methods are `sdk.<feature id>`, typed from the `features` you pass, and absent when the feature is off: `sdk.memory` (`status`, `isEnabled`, `setEnabled`, `botList`, `botAddLine`, `botEditLine`, `botDeleteLine`, `botReadFile`, `botSaveFile`), `sdk.skills` (`status`, `list`, `read`, `save`, `remove`), `sdk.knowledge` (`status`, `list`, `read`, `upload`, `uploadDocument`, `remove`, `createFolder`) and `sdk.mcp` (`listConnections`, `disconnect`, `forUser`). A feature you write with `defineFeature` gets its `api` the same way.
+Each enabled feature's methods are `sdk.<feature id>`, typed from the `features` you pass, and absent when the feature is off: `sdk.memory` (`status`, `isEnabled`, `setEnabled`, `botList`, `botAddLine`, `botEditLine`, `botDeleteLine`, `botReadFile`, `botSaveFile`), `sdk.skills` (`status`, `list`, `read`, `save`, `remove`), `sdk.knowledge` (`status`, `list`, `read`, `upload`, `uploadDocument`, `remove`, `createFolder`) and `sdk.mcp` (`listConnections`, `forUser`). A feature you write with `defineFeature` gets its `api` the same way.
 
 A feature serves its methods over HTTP through its `contract` (oRPC's `oc` from `@orpc/contract`), under `<basePath>/rpc/<id>`: each procedure calls the `api` method at the same path with its validated input and the signed-in user's `userId`, and `createBotSdk` throws when the `api` has no method for one. On the client, its part is `{ id, contract, urls? }`, passed in `features`, and its UI reads it through `useOrpc<{ <id>: typeof contract }>()`.
 
@@ -541,11 +541,11 @@ Nothing connects when you build `createBotSdk` or `redisRuntime()`. The first us
 
 ## Rotating the key encryption secret
 
-Stored Provider and Tool credentials, Bot Secrets and MCP Connection tokens are encrypted under `keyEncryptionSecrets`: the first secret encrypts, and every secret decrypts (ADR 0010). Rotate on an event, such as a suspected leak or someone with access leaving, not on a schedule. Rotating is a runbook, not an outage:
+Stored Provider and Tool credentials, Bot Secrets and Channel accounts' credentials are encrypted under `keyEncryptionSecrets`: the first secret encrypts, and every secret decrypts (ADR 0010). Rotate on an event, such as a suspected leak or someone with access leaving, not on a schedule. Rotating is a runbook, not an outage:
 
 1. Put the new secret first in `keyEncryptionSecrets` (in `apps/web`, `KEY_ENCRYPTION_SECRET` becomes the new one and the old one moves to `KEY_ENCRYPTION_SECRET_PREVIOUS`), and deploy. Every process must hold the new keyring before the next step.
-2. Run `await chat.rotateKeys()` once (it re-encrypts what each installed plugin stores: `models`, `bot` and the `mcp` feature), as a one-off command from your image (in `apps/web`: `node scripts/rotate-keys.ts`). Never run it in the pre-deploy step: the old version still running writes under the old key until the deploy finishes. It works in batches and is safe to re-run. It returns `{ reencrypted, unreadable }`.
-3. If `unreadable` is 0, remove the old secret and deploy again. If it isn't, find the rows under a key you no longer hold before removing it: a row under a removed key reads as missing, so its user re-enters the credential, Secret or Connection.
+2. Run `await chat.rotateKeys()` once (it re-encrypts what each installed plugin stores: `models` and `bot`), as a one-off command from your image (in `apps/web`: `node scripts/rotate-keys.ts`). Never run it in the pre-deploy step: the old version still running writes under the old key until the deploy finishes. It works in batches and is safe to re-run. It returns `{ reencrypted, unreadable }`.
+3. If `unreadable` is 0, remove the old secret and deploy again. If it isn't, find the rows under a key you no longer hold before removing it: a row under a removed key reads as missing, so its user re-enters the credential or Secret.
 
 `start()` never refuses to boot because rows are unreadable; it logs the counts instead.
 
@@ -597,13 +597,48 @@ const chat = createBotSdk({
 });
 ```
 
-## Connections to MCP servers
+## Connections
 
-The `mcp` feature (listed in `features`) lists remote MCP servers your users may sign in to: `mcp({ servers: [{ key, name, url, oauth: { clientId, clientSecret } }] })`, with `mcpClient()` on the client and its `ConnectionsSection` on the keys page. It's the `@botsdk/mcp` package, with `@botsdk/mcp/client` and the hooks at `@botsdk/mcp/react`; `ConnectionsSection` is `@botsdk/ui/mcp`. Only Streamable HTTP servers on HTTPS are accepted; a `url` that isn't HTTPS throws when `createBotSdk` runs. `key` names the server in storage (letters, digits, `_` and `-`). Register your OAuth client with each server ahead of time: the SDK doesn't use Dynamic Client Registration.
+The `mcp` feature (listed in `features`) offers your users Connections: sign-ins to apps such as GitHub, whose tools their Bots use as Connector tools (ADR 0037). It's the `@botsdk/mcp` package, with `mcpClient()` at `@botsdk/mcp/client` and the hooks at `@botsdk/mcp/react`; `ConnectionsSection` is `@botsdk/ui/mcp`.
 
-Register this redirect URI with each server, with your app's origin in place of the host: `https://<your-app>/<basePath>/mcp/callback`, for example `https://app.example/api/chat/mcp/callback`. The SDK serves the sign-in start (`<basePath>/mcp/connect`) and this callback through the same handler, so the Host mounts no new route.
+```ts
+mcp({
+  connections: [
+    {
+      key: "github",
+      name: "GitHub",
+      mcp: { url: "https://api.githubcopilot.com/mcp/", tools: ["list_notifications"] },
+      approvalFree: ["list_notifications"],
+      readOnlyTools: ["list_notifications"],
+    },
+  ],
+  // the user's access token, { reconnect: true } when linked but its refresh failed, or null
+  connection: (userId, key) => tokenFor(userId, key),
+});
+```
 
-With no `servers`, the keys page shows no Connections section and connecting is refused. A user's Connection is stored encrypted under the keyring (ADR 0010). A Connection whose tokens no longer decrypt shows as "Reconnect needed". `deleteUser` removes the user's Connections. Discovery and token requests go through the guarded `fetch`. `sdk.mcp.forUser(userId).tools({ signal })` gives a user's connected servers' tools, named `<key>_<tool>`, with their clients open until `signal` aborts; it refreshes expired tokens and skips a server that is down. Bots use a user's connected servers' tools as connectors.
+- **The Host owns the sign-in.** The SDK runs no OAuth and stores no tokens: your auth links the app, stores and refreshes its tokens, and answers the `connection` hook. Each MCP client sends the hook's token as a Bearer token, with no OAuth discovery or client registration. Without the hook, nothing is connected.
+- **`connections`**: `key` names the Connection in its tools (`<key>_<tool>`) and in the hook (letters, digits, `_` and `-`). Its tools come from one source: `mcp` or `tools`. `mcp.url` is a Streamable HTTP endpoint on HTTPS; a `url` that isn't HTTPS, a bad key, a repeated one, or a Connection with both sources or neither throws when `createBotSdk` runs. `mcp.tools` is an allowlist, `approvalFree` skips Auto-review and `readOnlyTools` adds to the tools the server marks `readOnlyHint` (for Host tools, it is the only mark).
+- **Host tools:** `tools` lists tools you wrote, each a `HostTool` with a `name`, a `description`, an `inputSchema`, an `outputSchema` and `execute(input, { accessToken, signal })`. A Standard Schema (such as Zod's) checks the input before `execute` runs and its result after. Throw `ConnectionBrokenError` (from `@botsdk/mcp`) when the app refuses the token, and the Bot is told to have the user reconnect; any other throw is the call's answer.
+
+```ts
+mcp({
+  connections: [
+    {
+      key: "calendar",
+      name: "Calendar",
+      tools: [listEvents],
+      approvalFree: ["list_events"],
+      readOnlyTools: ["list_events"],
+    },
+  ],
+  connection: (userId, key) => tokenFor(userId, key),
+});
+```
+
+- **State:** `sdk.mcp.listConnections({ userId })` gives each Connection's state from the hook: `connected`, `reconnect` or `disconnected`. A failing hook is logged and reads as not connected.
+- **Settings:** `<ConnectionsSection host={{ connect, disconnect }} />` lists them on the Keys page, hidden when you declare none. `connect(key)` and `disconnect(key)` are yours; Reconnect calls `connect` again.
+- **Tools:** `sdk.mcp.forUser(userId).tools({ signal })` gives a user's connected Connections' tools, named `<key>_<tool>`, with their clients open until `signal` aborts, skipping a server that is down or refuses the token. A Bot's call to a tool whose Connection needs reconnecting, isn't linked or answers HTTP 401 gets an error telling it to ask the user to reconnect.
 
 ## Rate limits
 

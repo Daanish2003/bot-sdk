@@ -224,6 +224,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
       { feature: "core", migration: "20261118094916_drop_representative" },
+      { feature: "core", migration: "20261118115121_drop_mcp_connection" },
     ]);
     // Images and PDFs are already compressed, so the bytes are kept out of line uncompressed.
     expect(
@@ -286,6 +287,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
       { feature: "core", migration: "20261118094916_drop_representative" },
+      { feature: "core", migration: "20261118115121_drop_mcp_connection" },
     ]);
     expect(
       await rows(url, "update botsdk.bot_review set state = 'pending' returning state, expires_at"),
@@ -382,6 +384,44 @@ describe("chat.migrate()", () => {
         { role: "reset", author_bot_id: null },
       ],
     );
+  });
+
+  it("drops the mcp feature's Connections table and journal rows, keeping the feature usable (#1412)", async () => {
+    const url = await scratchDatabase("k1412_drop_mcp_connection");
+    const core = shippedMigrations("../botsdk/bot/src").filter(
+      (migration) => migration.name < "20261118115121_drop_mcp_connection",
+    );
+    // The journal first: the Representative removal, among the earlier core migrations, edits it.
+    await rows(
+      url,
+      `create schema botsdk; create extension if not exists pg_trgm;
+       create table botsdk.__migrations (
+         feature text not null, migration text not null,
+         applied_at timestamp with time zone not null default clock_timestamp(),
+         primary key (feature, migration))`,
+    );
+    for (const migration of core) await rows(url, migration.sql);
+    // The table and journal row the feature's baseline left, with a stored Connection.
+    await rows(
+      url,
+      `insert into botsdk.__migrations (feature, migration) values
+         ${core.map((migration) => `('core', '${migration.name}')`).join(", ")},
+         ('mcp', '20261026182927_mcp_baseline');
+       create table botsdk.mcp_connection (
+         user_id text, server_key text, encrypted text,
+         constraint mcp_connection_pkey primary key (user_id, server_key));
+       insert into botsdk.mcp_connection (user_id, server_key, encrypted) values ('u1', 'linear', 'x')`,
+    );
+
+    const chat = chatFor(url, [mcp()]);
+    await chat.migrate();
+
+    expect(await tablesOf(url)).toEqual([...coreTables].sort());
+    expect(
+      await rows(url, "select migration from botsdk.__migrations where feature = 'mcp'"),
+    ).toEqual([]);
+    await expect(chat.start()).resolves.toBeUndefined();
+    await chat.stop();
   });
 
   it("drops the removed Representative feature's tables, trigger, held accounts and journal rows, and the Pages (#1167)", async () => {
@@ -506,7 +546,8 @@ describe("chat.migrate()", () => {
 
     await chatFor(url, [notes(), mcp()]).migrate();
 
-    expect(await tablesOf(url)).toEqual([...coreTables, "mcp_connection", "test_note"].sort());
+    // The mcp feature has no tables: the Host holds its Connections' tokens (ADR 0037).
+    expect(await tablesOf(url)).toEqual([...coreTables, "test_note"].sort());
     expect(await journal(url)).toEqual([
       { feature: "core", migration: "20261026182921_botsdk_baseline" },
       { feature: "core", migration: "20261029113355_approval_rules" },
@@ -534,8 +575,8 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
       { feature: "core", migration: "20261118094916_drop_representative" },
+      { feature: "core", migration: "20261118115121_drop_mcp_connection" },
       { feature: "notes", migration: "0001_note" },
-      { feature: "mcp", migration: "20261026182927_mcp_baseline" },
     ]);
   });
 
@@ -577,6 +618,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
       { feature: "core", migration: "20261118094916_drop_representative" },
+      { feature: "core", migration: "20261118115121_drop_mcp_connection" },
       { feature: "notes", migration: "0001_note" },
       { feature: "notes", migration: "0002_note_text" },
     ]);
@@ -724,6 +766,7 @@ describe("chat.migrate()", () => {
       { feature: "core", migration: "20261105120135_channel_account_optional_bot" },
       { feature: "core", migration: "20261110011610_trigger_from_untrusted" },
       { feature: "core", migration: "20261118094916_drop_representative" },
+      { feature: "core", migration: "20261118115121_drop_mcp_connection" },
       { feature: "notes", migration: "0001_note" },
     ]);
   });
@@ -795,11 +838,11 @@ describe("chat.start()", () => {
   });
 
   it("lists each SDK feature with tables under the id and migrations the feature has", () => {
-    expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory(), mcp()]));
+    expect(sdkFeatureMigrations()).toEqual(featureMigrations([memory()]));
   });
 
   it("has each SDK feature declare every table its migrations make, so removing it drops them all", () => {
-    for (const { id, schema } of [memory(), mcp()]) {
+    for (const { id, schema } of [memory()]) {
       const sql = (schema?.migrations ?? []).map((migration) => migration.sql).join("\n");
       const made = [...sql.matchAll(/CREATE TABLE "botsdk"\."(\w+)"/g)].map((match) => match[1]);
       const declared = Object.values(schema?.tables ?? {}).map((table) => getTableName(table));

@@ -1,76 +1,70 @@
 import type { AnyServerTool } from "@tanstack/ai";
 import { and, asc, eq, lt, ne } from "drizzle-orm";
-import type { z } from "zod";
 
 import { defineFeature } from "@botsdk/bot/feature";
-import type { Route } from "@botsdk/bot/plugin";
-import { parseInput } from "@botsdk/bot/rpc-error";
 import { bot, botTurn } from "@botsdk/bot/storage";
 import {
-  deleteConnection,
+  checkConnections,
+  connectionStates,
   listConnections,
-  rotateConnectionKeys,
+  untilAborted,
+  type ConnectionHook,
   type ConnectionSummary,
+  type McpConnection,
 } from "./connections";
 import { connectorTools } from "./connector-tools";
-import { mcpConnection } from "./db/connection";
-import mcpMigrations from "./migrations.json" with { type: "json" };
-import { callbackRoute, connectRoute } from "./routes";
-import { disconnectInput, mcpContract } from "../shared/contract";
-import { checkMcpServers, type McpServerConfig } from "./servers";
+import { mcpContract } from "../shared/contract";
 import { openMcpTools } from "./tools";
 
 export type McpOptions = {
   /**
-   * Remote MCP servers the users may connect to (spec #91). Streamable HTTP over HTTPS only. Each
-   * server needs an OAuth client the Host registered with it ahead of time; the README says which
-   * redirect URI to register.
+   * The apps the Host offers its users Connections to (ADR 0037), each with its tools' MCP server
+   * (Streamable HTTP over HTTPS only).
    */
-  servers?: McpServerConfig[];
+  connections?: McpConnection[];
+  /**
+   * How the Bot SDK learns a user's Connection: its access token, `{ reconnect: true }` or nothing.
+   * The Host runs the sign-in, stores and refreshes the tokens. Without it, nothing is connected.
+   */
+  connection?: ConnectionHook;
 };
 
 /** The `mcp` feature's API (`sdk.mcp`): a user's Connections as tools. */
 export type McpApi = {
-  /** The user's Connection to each of the Host's servers, in the Host's order (spec #873). */
+  /** The user's state for each Connection the Host declares, in the Host's order (spec #873). */
   listConnections: (input: { userId: string }) => Promise<ConnectionSummary[]>;
-  /** Removes the user's Connection to one server: its tokens and any sign-in in flight. */
-  disconnect: (input: { userId: string } & z.input<typeof disconnectInput>) => Promise<void>;
-  /** The servers the Host offers, by key and name: what a tool named `<key>_<tool>` belongs to. */
+  /** The Connections the Host declares, by key and name: what a tool named `<key>_<tool>` belongs to. */
   servers: ReadonlyArray<{ key: string; name: string }>;
   forUser: (userId: string) => {
     /**
-     * The tools of the user's connected servers, named `<server key>_<tool>`, with their clients
-     * open until `signal` aborts. Expired tokens are refreshed first; a server that is down or whose
-     * Connection needs reconnecting is skipped.
+     * The tools of the user's connected Connections, named `<key>_<tool>`, with their clients open
+     * until `signal` aborts. A Connection whose server is down, or that the hook gives no token
+     * for, is skipped.
      */
     tools: (options: { signal: AbortSignal }) => Promise<AnyServerTool[]>;
   };
 };
 
 /**
- * The `mcp` feature (ADR 0027, spec #871): the Host's MCP servers, the users' Connections to them
- * (the sign-in routes, the `mcp` contract and key rotation) and their tools. A Host turns it
- * on with `mcp({ servers })` in `features`.
+ * The `mcp` feature (ADR 0027, ADR 0037): the Connections the Host declares, their state from the
+ * Host's `connection` hook (the `mcp` contract) and their tools. A Host turns it on with
+ * `mcp({ connections, connection })` in `features`.
  */
 export function mcp(options: McpOptions = {}) {
-  const servers = options.servers ?? [];
+  const connections = options.connections ?? [];
+  const hook = options.connection;
   return defineFeature({
     id: "mcp",
-    schema: { tables: { mcpConnection }, migrations: mcpMigrations },
     connectorTools: true,
     contract: mcpContract,
-    routes: mcpRoutes(servers),
     api: (context): McpApi => {
-      // At construction, so a misconfigured server fails the Host's boot (spec #91).
-      checkMcpServers(servers, context.fetchAllowHosts);
+      // At construction, so a misconfigured Connection fails the Host's boot (spec #91).
+      checkConnections(connections, context.fetchAllowHosts);
       return {
-        listConnections: ({ userId }) => listConnections(context, servers, userId),
-        disconnect: async ({ userId, ...rest }) => {
-          await deleteConnection(context, userId, parseInput(disconnectInput, rest).key);
-        },
-        servers: servers.map(({ key, name }) => ({ key, name })),
+        listConnections: ({ userId }) => listConnections(context, connections, hook, userId),
+        servers: connections.map(({ key, name }) => ({ key, name })),
         forUser: (userId) => ({
-          tools: ({ signal }) => openMcpTools(context, servers, userId, signal),
+          tools: ({ signal }) => openMcpTools(context, connections, hook, userId, signal),
         }),
       };
     },
@@ -78,8 +72,8 @@ export function mcp(options: McpOptions = {}) {
     tools: async (turn, context, kit) => {
       if (!kit) return [];
       return connectorTools({
-        servers,
-        open: (signal) => openMcpTools(context, servers, turn.userId, signal),
+        servers: connections,
+        open: (signal) => openMcpTools(context, connections, hook, turn.userId, signal),
         ...kit,
       });
     },
@@ -88,11 +82,25 @@ export function mcp(options: McpOptions = {}) {
     // and so is a Bot's first-ever Turn, whose user already connected. A Bot with earlier Turns
     // whose Prompt start lacks the section (the Host turned the feature on since) isn't told.
     prompt: async (turn, context) => {
-      const connected = (await listConnections(context, servers, turn.userId)).filter(
-        ({ state }) => state === "connected",
+      // Raced against the signal: a Stop or the time limit doesn't wait for a slow hook.
+      const states = await untilAborted(
+        connectionStates(context, connections, hook, turn.userId),
+        turn.signal,
       );
+      if (!states) throw turn.signal.reason;
+      const { summaries, unsure } = states;
+      const connected = summaries.filter(({ state }) => state === "connected");
+      // A Bot that saw a Connection keeps seeing one while the hook fails or asks for a reconnect,
+      // so a new Prompt start doesn't make the first-Connection note news again.
+      if (connected.length === 0 && unsure && turn.built === connectedSection) {
+        return { section: connectedSection };
+      }
       const section =
-        connected.length > 0 ? connectedSection : servers.length > 0 ? noConnectionSection : null;
+        connected.length > 0
+          ? connectedSection
+          : connections.length > 0
+            ? noConnectionSection
+            : null;
       if (
         (turn.built !== null && turn.built !== noConnectionSection) ||
         connected.length === 0 ||
@@ -123,20 +131,6 @@ export function mcp(options: McpOptions = {}) {
         .limit(1);
       return { section, changeNotes: [firstConnectionNote(first?.id === turn.botId)] };
     },
-    userData: {
-      delete: {
-        before: async (tx, userId) => {
-          await tx.delete(mcpConnection).where(eq(mcpConnection.userId, userId));
-        },
-      },
-    },
-    rotateKeys: async (context) => {
-      const { reencrypted, unreadable } = await rotateConnectionKeys(context);
-      if (unreadable > 0) {
-        context.logger.error("Stored MCP tokens can't be read; left in place", { unreadable });
-      }
-      return { reencrypted, unreadable };
-    },
   });
 }
 
@@ -149,16 +143,3 @@ const firstConnectionNote = (firstBot: boolean) =>
   (firstBot
     ? "You are their first Bot: offer them the Morning brief and the Watch now, as your rules say."
     : "You are not their first Bot: set up a Morning brief or Watch only if the user asks.");
-
-/** The sign-in routes, under `basePath`: `/mcp/connect` starts one and `/mcp/callback` ends it. */
-function mcpRoutes(servers: readonly McpServerConfig[]): Route[] {
-  return (["connect", "callback"] as const).map((step): Route => ({
-    method: "GET",
-    path: `/mcp/${step}`,
-    handle: (request, { user, sdk, basePath }) => {
-      const redirectUri = `${new URL(request.url).origin}${basePath}/mcp/callback`;
-      const route = step === "connect" ? connectRoute : callbackRoute;
-      return route(request, user.id, sdk, servers, redirectUri);
-    },
-  }));
-}

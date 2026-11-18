@@ -1,10 +1,10 @@
-import type { FakeMcpAuth } from "./fake-mcp-auth";
-import { fakeMcpResource } from "./fake-mcp-auth";
+/** The unit tests' MCP endpoint, served by the fake through an injected `fetch`. */
+export const fakeMcpResource = "https://mcp.test/mcp";
 
 /**
  * A fake MCP server at `fakeMcpResource`, served through an injected `fetch` (never the network).
  * It speaks the Streamable HTTP transport's JSON side: one JSON-RPC message per POST, answered with
- * JSON. It accepts only the access tokens its authorization server issued (`auth.accepts`).
+ * JSON. It answers HTTP 401 to a request whose Bearer token `accepts` refuses, and does no OAuth.
  */
 export type FakeMcpTool = {
   name: string;
@@ -23,6 +23,8 @@ export type FakeMcpServer = {
   fetch: typeof globalThis.fetch;
   /** Requests to the endpoint, any method, so a test can see that no client connected. */
   requests: number;
+  /** Each request's `Authorization` header, as sent. */
+  authorizations: string[];
   /** Tool calls that reached the server, in order. A denied call never lands here. */
   calls: Array<{ name: string; arguments: Record<string, unknown> }>;
   /** Sessions the client closed (`DELETE`). */
@@ -36,11 +38,12 @@ export type FakeMcpServer = {
 };
 
 export function createFakeMcpServer({
-  auth,
+  accepts,
   tools,
   resource = fakeMcpResource,
 }: {
-  auth: FakeMcpAuth;
+  /** Whether the server takes this Bearer token; checked on every request. */
+  accepts: (token: string) => boolean;
   tools: FakeMcpTool[];
   /** The endpoint's URL: the unit tests' default, or a localhost one for the end-to-end tests. */
   resource?: string;
@@ -56,8 +59,10 @@ export function createFakeMcpServer({
       }
       server.requests += 1;
       if (server.down) return new Response("Service unavailable", { status: 503 });
-      const token = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-      if (!auth.accepts(token)) return new Response("Unauthorized", { status: 401 });
+      const authorization = request.headers.get("authorization") ?? "";
+      server.authorizations.push(authorization);
+      const token = authorization.replace(/^Bearer /, "");
+      if (!accepts(token)) return new Response("Unauthorized", { status: 401 });
       if (request.method === "GET") {
         // The client's server-to-client stream stays open until the client closes it: that abort is
         // the close the fake counts, since the SDK's `close` sends no DELETE.
@@ -151,6 +156,7 @@ export function createFakeMcpServer({
       }
     },
     requests: 0,
+    authorizations: [],
     calls: [],
     closed: 0,
     down: false,

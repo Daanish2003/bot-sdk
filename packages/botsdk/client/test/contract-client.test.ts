@@ -99,7 +99,6 @@ describe("the client composed from contracts", () => {
       eventsUrl: `${base}/events`,
       botFilesUrl: `${base}/bot-files`,
       routineWebhookUrl: `${base}/routines/webhook`,
-      connectionsUrl: `${base}/mcp`,
     });
   });
 });

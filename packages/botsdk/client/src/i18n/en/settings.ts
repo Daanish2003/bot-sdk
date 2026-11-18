@@ -13,8 +13,8 @@ export const settingsMessages = {
   "settings.reconnectNeeded": "Reconnect needed",
   "settings.notConnected": "Not connected",
   "settings.connections": "Connections",
-  "settings.connectionsHelp": "Servers your app offers. Signing in connects your account to them.",
-  "settings.scopes": ({ scopes }: { scopes: string }) => ` · Scopes: ${scopes}`,
+  "settings.connectionsHelp":
+    "Apps your Bots can use. Connecting one lets them use its tools as you.",
   "settings.reconnect": "Reconnect",
   "settings.connect": "Connect",
   "settings.disconnect": "Disconnect",
