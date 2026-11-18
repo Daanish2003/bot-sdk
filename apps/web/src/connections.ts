@@ -2,7 +2,7 @@ import {
   GITHUB_CONNECTION_PROVIDER,
   GMAIL_PROVIDER,
   GOOGLE_CALENDAR_PROVIDER,
-} from "@ai-chat/auth";
+} from "@ai-chat/auth/providers";
 import type { LinkedAccessToken } from "@ai-chat/auth/linked-token";
 import type { ConnectionHook, McpConnection } from "@botsdk/mcp";
 
