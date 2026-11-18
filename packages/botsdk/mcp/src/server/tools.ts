@@ -3,10 +3,10 @@ import { createMCPClient } from "@tanstack/ai-mcp";
 
 import type { BotSdkContext } from "@botsdk/bot/plugin";
 import {
-  accessTokenOf,
-  askConnection,
+  accessTokenFor,
   type ConnectionHook,
   type McpConnection,
+  untilAborted,
 } from "./connections";
 
 type Deps = Pick<BotSdkContext, "fetch" | "logger">;
@@ -37,7 +37,11 @@ export async function openMcpTools(
 
   const opened = await Promise.all(
     connections.map(async (server): Promise<AnyServerTool[]> => {
-      const accessToken = accessTokenOf(await askConnection(deps, hook, userId, server.key));
+      // Raced against the signal: a Stop or the time limit doesn't wait for a slow hook.
+      const accessToken = await untilAborted(
+        accessTokenFor(deps, hook, userId, server.key),
+        signal,
+      );
       if (!accessToken || signal.aborted) return [];
       let client: { close: () => Promise<void>; tools: () => Promise<unknown> } | undefined;
       try {

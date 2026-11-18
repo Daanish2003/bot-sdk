@@ -78,28 +78,67 @@ export function checkConnections(
   }
 }
 
-/**
- * The hook's answer for one of the user's Connections, or `null` without a hook. A failing hook
- * is logged and taken as no answer, so one broken Connection leaves the others usable.
- */
-export async function askConnection(
+/** A hook's answer, or `failed` when the hook threw. */
+type Asked = ConnectionAnswer | "failed";
+
+/** The hook's answer for one of the user's Connections, or `null` without a hook. A throw is logged. */
+async function ask(
   deps: Deps,
   hook: ConnectionHook | undefined,
   userId: string,
   key: string,
-): Promise<ConnectionAnswer> {
+): Promise<Asked> {
   if (!hook) return null;
   try {
     return await hook(userId, key);
   } catch (error) {
     deps.logger.error("The Host's connection hook failed", { key, error });
-    return null;
+    return "failed";
   }
 }
 
-/** The access token in a hook's answer, or `null` when the Connection can't be used. */
-export const accessTokenOf = (answer: ConnectionAnswer): string | null =>
-  answer && "accessToken" in answer ? answer.accessToken : null;
+/**
+ * The access token the hook answers for one of the user's Connections, or `null` when it can't be
+ * used. A failing hook is logged and gives no token, so one broken Connection leaves the others
+ * usable.
+ */
+export async function accessTokenFor(
+  deps: Deps,
+  hook: ConnectionHook | undefined,
+  userId: string,
+  key: string,
+): Promise<string | null> {
+  const answer = await ask(deps, hook, userId, key);
+  return answer && answer !== "failed" && "accessToken" in answer ? answer.accessToken : null;
+}
+
+/**
+ * One entry per Connection the Host declares, in the Host's order, with its state from the hook. A
+ * failing hook reads as not connected. `unsure` says whether any answer was a failure or a
+ * reconnect: a Connection that may have been usable before.
+ */
+export async function connectionStates(
+  deps: Deps,
+  connections: readonly McpConnection[],
+  hook: ConnectionHook | undefined,
+  userId: string,
+): Promise<{ summaries: ConnectionSummary[]; unsure: boolean }> {
+  let unsure = false;
+  const summaries = await Promise.all(
+    connections.map(async ({ key, name }): Promise<ConnectionSummary> => {
+      const answer = await ask(deps, hook, userId, key);
+      if (answer === "failed" || (answer && "reconnect" in answer)) unsure = true;
+      const state =
+        answer === "failed" || !answer
+          ? "disconnected"
+          : "accessToken" in answer
+            ? "connected"
+            : "reconnect";
+      return { key, name, state };
+    }),
+  );
+  return { summaries, unsure };
+}
 
 /** One entry per Connection the Host declares, in the Host's order, with its state from the hook. */
 export async function listConnections(
@@ -108,15 +147,15 @@ export async function listConnections(
   hook: ConnectionHook | undefined,
   userId: string,
 ): Promise<ConnectionSummary[]> {
-  return Promise.all(
-    connections.map(async ({ key, name }): Promise<ConnectionSummary> => {
-      const answer = await askConnection(deps, hook, userId, key);
-      const state = accessTokenOf(answer)
-        ? "connected"
-        : answer && "reconnect" in answer
-          ? "reconnect"
-          : "disconnected";
-      return { key, name, state };
-    }),
-  );
+  return (await connectionStates(deps, connections, hook, userId)).summaries;
+}
+
+/** `promise`'s value, or `null` once `signal` aborts first. */
+export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | null> {
+  if (signal.aborted) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(null);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }

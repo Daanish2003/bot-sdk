@@ -17,6 +17,7 @@ const host = (): ConnectionsHost => ({ connect: vi.fn(), disconnect: vi.fn() });
 
 /** The Keys page with `byok` on and the Connections list seeded as `connections`. */
 function page(connections: Summary[], connectionsHost: ConnectionsHost = host()) {
+  let listState: () => { isInvalidated: boolean } | undefined = () => undefined;
   render(
     providerFor(createElement(HostKeysPage, { connections: connectionsHost }), {
       messages: {},
@@ -24,10 +25,11 @@ function page(connections: Summary[], connectionsHost: ConnectionsHost = host())
         queryClient.setQueryData(client.orpc.models.credentials.mode.queryKey(), { byok: true });
         queryClient.setQueryData(client.orpc.models.credentials.list.queryKey(), []);
         queryClient.setQueryData(client.orpc.mcp.listConnections.queryKey(), connections);
+        listState = () => queryClient.getQueryState(client.orpc.mcp.listConnections.queryKey());
       },
     }),
   );
-  return connectionsHost;
+  return Object.assign(connectionsHost, { listState: () => listState() });
 }
 
 const row = (name: string) => within(screen.getByText(name).closest("li")!);
@@ -59,6 +61,8 @@ describe("the Connections section of the Keys page", () => {
     fireEvent.click(row("GitHub").getByRole("button", { name: "Connect" }));
 
     await waitFor(() => expect(connections.connect).toHaveBeenCalledWith("github"));
+    // A connect that finishes in the page refetches the states.
+    await waitFor(() => expect(connections.listState()?.isInvalidated).toBe(true));
   });
 
   it("offers Reconnect for a broken Connection, which runs the Host's connect again", async () => {

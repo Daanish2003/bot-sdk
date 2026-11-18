@@ -33,6 +33,8 @@ export function ConnectionsSection({ host }: { host: ConnectionsHost }) {
   const refresh = useRefreshMcp();
   const connect = useMutation({
     mutationFn: (key: string) => Promise.resolve(host.connect(key)),
+    // A connect that finishes in the page (a popup) changes the state; a redirect never gets here.
+    onSuccess: refresh,
     onError: (error) => toast.error(serverErrorText(i18n, error)),
   });
   const disconnect = useMutation({

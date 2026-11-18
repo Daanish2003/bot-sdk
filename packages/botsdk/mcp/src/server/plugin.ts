@@ -5,7 +5,9 @@ import { defineFeature } from "@botsdk/bot/feature";
 import { bot, botTurn } from "@botsdk/bot/storage";
 import {
   checkConnections,
+  connectionStates,
   listConnections,
+  untilAborted,
   type ConnectionHook,
   type ConnectionSummary,
   type McpConnection,
@@ -80,9 +82,19 @@ export function mcp(options: McpOptions = {}) {
     // and so is a Bot's first-ever Turn, whose user already connected. A Bot with earlier Turns
     // whose Prompt start lacks the section (the Host turned the feature on since) isn't told.
     prompt: async (turn, context) => {
-      const connected = (await listConnections(context, connections, hook, turn.userId)).filter(
-        ({ state }) => state === "connected",
+      // Raced against the signal: a Stop or the time limit doesn't wait for a slow hook.
+      const states = await untilAborted(
+        connectionStates(context, connections, hook, turn.userId),
+        turn.signal,
       );
+      if (!states) throw turn.signal.reason;
+      const { summaries, unsure } = states;
+      const connected = summaries.filter(({ state }) => state === "connected");
+      // A Bot that saw a Connection keeps seeing one while the hook fails or asks for a reconnect,
+      // so a new Prompt start doesn't make the first-Connection note news again.
+      if (connected.length === 0 && unsure && turn.built === connectedSection) {
+        return { section: connectedSection };
+      }
       const section =
         connected.length > 0
           ? connectedSection

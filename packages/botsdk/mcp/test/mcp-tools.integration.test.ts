@@ -154,6 +154,19 @@ describe("mcp's forUser(id).tools()", () => {
     },
   );
 
+  it("stops waiting for a hook that hangs once the signal aborts", async () => {
+    const user = await insertUser();
+    const deps = createTestSdk({
+      features: [mcp({ connections: [linear], connection: () => new Promise(() => {}) })],
+    });
+    const controller = new AbortController();
+
+    const listed = mcpApi(deps).forUser(user.id).tools({ signal: controller.signal });
+    controller.abort();
+
+    expect(await listed).toEqual([]);
+  });
+
   it("leaves out a server that refuses the hook's token with HTTP 401", async () => {
     const { server, tools } = await setup({ answers: { linear: { accessToken: "revoked" } } });
 
@@ -261,4 +274,53 @@ describe("mcp({ connections })", () => {
 
     expect(() => createTestSdk({ features: [mcp({ connections: [plain] })] })).toThrow(/HTTPS/);
   });
+});
+
+describe("mcp's Prompt start section", () => {
+  const connectedSection = "Connections: the user has connected an app.";
+
+  /** The feature's section and notes for a new Prompt start of a Bot that had seen `built`. */
+  async function promptFor(deps: TestDeps, userId: string, built: string | null) {
+    const { feature, context } = enabledFeatures(deps).find(({ feature }) => feature.id === "mcp")!;
+    return feature.prompt!(
+      {
+        id: crypto.randomUUID(),
+        userId,
+        botId: crypto.randomUUID(),
+        conversationId: crypto.randomUUID(),
+        built,
+        told: [],
+        startedAt: new Date(),
+        earlier: [],
+        signal: new AbortController().signal,
+        mask: (text) => text,
+      },
+      context,
+    );
+  }
+
+  it.each([
+    ["needs reconnecting", { reconnect: true as const }],
+    ["fails", "throws" as const],
+  ])(
+    "keeps the connected section, so the first-Connection note isn't told again, while the hook %s",
+    async (_case, answer) => {
+      const user = await insertUser();
+      const deps = createTestSdk({
+        features: [
+          mcp({
+            connections: [linear],
+            connection: () => {
+              if (answer === "throws") throw new Error("Better Auth is down");
+              return answer;
+            },
+          }),
+        ],
+      });
+
+      expect(await promptFor(deps, user.id, connectedSection)).toEqual({
+        section: connectedSection,
+      });
+    },
+  );
 });
