@@ -10,7 +10,7 @@ import { NotificationsSection } from "@botsdk/ui/settings/notifications-section"
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getChatgptLinkEnabled } from "@/functions/chatgpt-link-enabled";
-import { connectionProviders, unlinkConnection } from "@/connections";
+import { connectionProviders, unlinkConnection } from "@/connection-links";
 import { authClient } from "@/lib/auth-client";
 import { unlinkChatgpt } from "@/unlink-chatgpt";
 

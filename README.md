@@ -49,6 +49,15 @@ To connect a ChatGPT plan (optional), set `CHATGPT_CLIENT_ID` and `CHATGPT_HOST_
 
 To offer the GitHub Connection (a Bot using GitHub's tools through GitHub's remote MCP server, ADR 0037), set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` (the same OAuth App as "Continue with GitHub") and set that OAuth App's callback URL to the app's `/api/auth/` base, for example `http://localhost:3001/api/auth/`. GitHub accepts any path under the callback URL, so one App serves both the sign-in (`/api/auth/callback/github`) and the Connection (`/api/auth/callback/github-connection`). Connect GitHub on Settings, Keys; it asks for the `repo`, `notifications` and `read:org` scopes, which a later GitHub sign-in keeps too.
 
+To offer the Google Calendar Connection (a Bot listing calendars and events, creating and updating events and answering invites, through tools apps/web wrote over the Calendar API), set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (the same OAuth client as "Continue with Google"). Then, once, in that client's Google Cloud project:
+
+1. **Enable the Google Calendar API** (APIs & Services, Library).
+2. **Add the link's redirect URI** to the OAuth client's authorized redirect URIs: `<BETTER_AUTH_URL>/api/auth/callback/google-calendar`, for example `http://localhost:3001/api/auth/callback/google-calendar`.
+3. **Add the scopes to the consent screen** (Data access): `https://www.googleapis.com/auth/calendar.events` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly`.
+4. **Publish the app** (Audience): set the publishing status to _In production_, and leave it unverified under the personal-use exemption, accepting the "Google hasn't verified this app" warning when you connect. In _Testing_, Google expires the refresh token after 7 days. If the console refuses to publish, stay in Testing (with your account as a test user) and reconnect every 7 days.
+
+Connect Google Calendar on Settings, Keys, with any Google account, which may differ from the one you sign in with. The link asks Google for a refresh token (`access_type=offline`, `prompt=consent`), so it keeps working past the hour its access token lasts.
+
 ## Testing
 
 Vitest runs every package's tests from the root config (`vitest.config.ts`):

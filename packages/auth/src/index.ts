@@ -51,10 +51,69 @@ export const GITHUB_CONNECTION_PROVIDER = "github-connection";
 // What the Connection asks of GitHub, beyond the sign-in's own scopes. The OAuth App is the sign-in's.
 const GITHUB_CONNECTION_SCOPES = ["repo", "notifications", "read:org"];
 
+/** The Google Calendar Connection's provider id (ADR 0037), on the Google sign-in's client. */
+export const GOOGLE_CALENDAR_PROVIDER = "google-calendar";
+const GOOGLE_CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+];
+
 // Providers a user links on purpose but never signs in with: they don't count as a way to sign in.
-const LINK_ONLY_PROVIDERS = [CHATGPT_PROVIDER, GITHUB_CONNECTION_PROVIDER];
+const LINK_ONLY_PROVIDERS = [
+  CHATGPT_PROVIDER,
+  GITHUB_CONNECTION_PROVIDER,
+  GOOGLE_CALENDAR_PROVIDER,
+];
 
 type GithubProfile = { id: number; login: string; name?: string | null; email?: string | null };
+type GoogleProfile = {
+  sub: string;
+  email: string;
+  email_verified?: boolean;
+  name?: string;
+  picture?: string;
+};
+
+/**
+ * A Google Connection's link-only provider (ADR 0037) on the Google sign-in's client. `openid` and
+ * `email` name the linked account; `access_type=offline` with `prompt=consent` makes Google hand
+ * out a refresh token on every link, a Reconnect included. The callback is the default,
+ * `/api/auth/callback/<providerId>`, which the client must list as a redirect URI.
+ */
+function googleConnection(
+  env: Pick<AuthConfig, "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET">,
+  providerId: string,
+  scopes: string[],
+) {
+  return {
+    providerId,
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
+    authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    scopes: ["openid", "email", ...scopes],
+    accessType: "offline",
+    prompt: "consent" as const,
+    pkce: true,
+    disableSignUp: true,
+    // Google's userinfo names the account `sub`, where Better Auth reads `id`.
+    getUserInfo: async (tokens: { accessToken?: string }) => {
+      if (!tokens.accessToken) return null;
+      const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+        headers: { authorization: `Bearer ${tokens.accessToken}` },
+      });
+      if (!response.ok) return null;
+      const profile = (await response.json()) as GoogleProfile;
+      return {
+        id: profile.sub,
+        name: profile.name || profile.email,
+        email: profile.email,
+        emailVerified: profile.email_verified === true,
+        image: profile.picture,
+      };
+    },
+  };
+}
 
 // Social sign-in. Better Auth links to an existing account only when the provider reports the email
 // as verified (its default); neither provider is in `trustedProviders`, so an unverified provider
@@ -191,6 +250,9 @@ export function createAuth(
           },
         ]
       : []),
+    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? [googleConnection(env, GOOGLE_CALENDAR_PROVIDER, GOOGLE_CALENDAR_SCOPES)]
+      : []),
   ];
   const linkOnlyOAuth = linkOnly.length > 0 ? genericOAuth({ config: linkOnly }) : undefined;
 
@@ -317,7 +379,7 @@ export function createAuth(
       },
     },
     hooks: {
-      // ChatGPT and the GitHub Connection are link-only. `disableSignUp` alone would still sign in an
+      // ChatGPT and the Connections are link-only. `disableSignUp` alone would still sign in an
       // existing user whose email matches, so every social sign-in for them is refused, the ID-token
       // form included.
       before: createAuthMiddleware(async (ctx) => {

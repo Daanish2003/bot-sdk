@@ -1,7 +1,7 @@
 import type { LinkedAccessToken } from "@ai-chat/auth/linked-token";
 import { describe, expect, it } from "vitest";
 
-import { connectionHookOf, connectionsOf, unlinkConnection } from "./connections";
+import { connectionHookOf, connectionsOf } from "./connections";
 
 const hookFor = (token: LinkedAccessToken) => connectionHookOf({ github: async () => token });
 
@@ -31,7 +31,7 @@ describe("the Connections the Host declares", () => {
 
   it("offers only an allowlist of GitHub's tools, and asks approval for every write", () => {
     const [github] = connectionsOf({ GITHUB_CLIENT_ID: "id", GITHUB_CLIENT_SECRET: "s" });
-    const allowed = github.mcp.tools ?? [];
+    const allowed = github.mcp?.tools ?? [];
 
     expect(allowed).toEqual(
       expect.arrayContaining(["list_notifications", "issue_read", "pull_request_read"]),
@@ -48,6 +48,46 @@ describe("the Connections the Host declares", () => {
     }
     // Approval-free tools are all in the allowlist.
     for (const tool of github.approvalFree ?? []) expect(allowed).toContain(tool);
+  });
+});
+
+describe("the Google Calendar Connection", () => {
+  const google = { GOOGLE_CLIENT_ID: "id.apps.googleusercontent.com", GOOGLE_CLIENT_SECRET: "s" };
+
+  it("is declared, with the Host's Calendar tools, when the Google client id and secret are set", () => {
+    const [calendar, ...others] = connectionsOf(google);
+
+    expect(others).toEqual([]);
+    expect(calendar).toMatchObject({ key: "google_calendar", name: "Google Calendar" });
+    expect(calendar.mcp).toBeUndefined();
+    expect(calendar.tools?.map((tool) => tool.name)).toEqual([
+      "list_calendars",
+      "list_events",
+      "create_event",
+      "update_event",
+      "respond_to_event",
+    ]);
+  });
+
+  it("reads without approval or a write, and asks approval for every write", () => {
+    const [calendar] = connectionsOf(google);
+
+    expect(calendar.approvalFree).toEqual(["list_calendars", "list_events"]);
+    expect(calendar.readOnlyTools).toEqual(["list_calendars", "list_events"]);
+  });
+
+  it.each([
+    ["only the id is set", { GOOGLE_CLIENT_ID: "id" }],
+    ["only the secret is set", { GOOGLE_CLIENT_SECRET: "s" }],
+    ["both are empty", { GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" }],
+  ])("is not declared when %s", (_name, env) => {
+    expect(connectionsOf(env)).toEqual([]);
+  });
+
+  it("comes after GitHub when both clients are set", () => {
+    const keys = connectionsOf({ ...google, GITHUB_CLIENT_ID: "id", GITHUB_CLIENT_SECRET: "s" });
+
+    expect(keys.map((connection) => connection.key)).toEqual(["github", "google_calendar"]);
   });
 });
 
@@ -90,31 +130,5 @@ describe("the connection hook", () => {
     await hook("user-7", "github");
 
     expect(asked).toEqual(["user-7"]);
-  });
-});
-
-describe("disconnecting a Connection", () => {
-  it("unlinks only the Connection's own rows, not the GitHub sign-in's", async () => {
-    const unlinked: string[] = [];
-
-    await unlinkConnection(
-      [
-        { id: "a1", providerId: "github" },
-        { id: "a2", providerId: "github-connection" },
-        { id: "a3", providerId: "google" },
-      ],
-      "github",
-      async (id) => {
-        unlinked.push(id);
-      },
-    );
-
-    expect(unlinked).toEqual(["a2"]);
-  });
-
-  it("does nothing for a key the Host doesn't declare", async () => {
-    await unlinkConnection([{ id: "a1", providerId: "github-connection" }], "gmail", async () => {
-      throw new Error("should not unlink");
-    });
   });
 });

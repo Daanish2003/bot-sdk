@@ -1,4 +1,4 @@
-import { createAuth } from "@ai-chat/auth";
+import { createAuth, GITHUB_CONNECTION_PROVIDER, GOOGLE_CALENDAR_PROVIDER } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
 import { linkedAccessToken } from "@ai-chat/auth/linked-token";
 import { createDb } from "@ai-chat/db";
@@ -86,10 +86,15 @@ export const sdk = (shared.botSdk ??= createBotSdk({
       connections: connectionsOf({
         GITHUB_CLIENT_ID: ENV.GITHUB_CLIENT_ID,
         GITHUB_CLIENT_SECRET: ENV.GITHUB_CLIENT_SECRET,
+        GOOGLE_CLIENT_ID: ENV.GOOGLE_CLIENT_ID,
+        GOOGLE_CLIENT_SECRET: ENV.GOOGLE_CLIENT_SECRET,
       }),
       connection: connectionHookOf({
         github: cachedTokenFor((userId) =>
-          linkedAccessToken(auth, db, userId, "github-connection"),
+          linkedAccessToken(auth, db, userId, GITHUB_CONNECTION_PROVIDER),
+        ),
+        google_calendar: cachedTokenFor((userId) =>
+          linkedAccessToken(auth, db, userId, GOOGLE_CALENDAR_PROVIDER),
         ),
       }),
     }),

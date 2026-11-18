@@ -1,12 +1,7 @@
 import type { LinkedAccessToken } from "@ai-chat/auth/linked-token";
 import type { ConnectionHook, McpConnection } from "@botsdk/mcp";
 
-// The Better Auth provider behind each Connection, by the Connection's key (ADR 0037). It is
-// `GITHUB_CONNECTION_PROVIDER` of @ai-chat/auth, written out here because the Keys page imports this
-// file and must not pull the auth server into the browser.
-export const connectionProviders: Record<string, string> = {
-  github: "github-connection",
-};
+import { googleCalendarTools } from "./google-calendar";
 
 // GitHub's remote MCP server tools (github/github-mcp-server, its `readOnlyHint: true` tools of the
 // notifications, issues, pull_requests and repos toolsets). A read needs no approval.
@@ -47,25 +42,44 @@ const githubWriteTools = [
   "create_pull_request_review",
 ];
 
+// The Google Calendar tools that only read: no approval, and a read-only run may call them.
+const calendarReadTools = ["list_calendars", "list_events"];
+
 /**
- * The Connections the Host declares (ADR 0037): GitHub when the GitHub sign-in's client is set,
- * since the Connection reuses that OAuth App.
+ * The Connections the Host declares (ADR 0037), each when the sign-in client it reuses is set:
+ * GitHub on the GitHub OAuth App, Google Calendar on the Google client.
  */
 export function connectionsOf(env: {
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }): McpConnection[] {
-  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) return [];
   return [
-    {
-      key: "github",
-      name: "GitHub",
-      mcp: {
-        url: "https://api.githubcopilot.com/mcp/",
-        tools: [...githubReadTools, ...githubWriteTools],
-      },
-      approvalFree: githubReadTools,
-    },
+    ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+      ? [
+          {
+            key: "github",
+            name: "GitHub",
+            mcp: {
+              url: "https://api.githubcopilot.com/mcp/",
+              tools: [...githubReadTools, ...githubWriteTools],
+            },
+            approvalFree: githubReadTools,
+          },
+        ]
+      : []),
+    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? [
+          {
+            key: "google_calendar",
+            name: "Google Calendar",
+            tools: googleCalendarTools(),
+            approvalFree: calendarReadTools,
+            readOnlyTools: calendarReadTools,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -82,17 +96,4 @@ export function connectionHookOf(
     if (token?.status === "ok") return { accessToken: token.accessToken };
     return token?.status === "needs-reconnect" ? { reconnect: true } : null;
   };
-}
-
-/** Unlinks every account row of a Connection, one after another, and no other account. */
-export async function unlinkConnection(
-  accounts: { id: string; providerId: string }[],
-  key: string,
-  unlink: (accountId: string) => Promise<void>,
-): Promise<void> {
-  const providerId = connectionProviders[key];
-  if (!providerId) return;
-  for (const linked of accounts.filter((account) => account.providerId === providerId)) {
-    await unlink(linked.id);
-  }
 }
