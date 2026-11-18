@@ -71,7 +71,7 @@ async function botWith(
   } = {},
 ) {
   const fake = createFakeAdapter({ rounds });
-  const link: { answer: ConnectionAnswer; accepted: string } = {
+  const link: { answer: ConnectionAnswer; accepted: string; fails?: boolean } = {
     answer: { accessToken: token },
     accepted: token,
   };
@@ -94,7 +94,10 @@ async function botWith(
         ? [
             mcp({
               connections: [connection],
-              connection: (_userId, key) => (key === connection.key ? link.answer : null),
+              connection: (_userId, key) => {
+                if (link.fails) throw new Error("The Host's database is down");
+                return key === connection.key ? link.answer : null;
+              },
             }),
           ]
         : []),
@@ -606,6 +609,32 @@ describe("Connector tools the Host wrote", () => {
       expect(String(messagesOf(fake.calls.at(-1))[0]?.content)).toContain("calendar_list_events:");
     },
   );
+
+  it("answers a call whose hook throws that the Connection is unavailable, not that it needs reconnecting", async () => {
+    let link: { fails?: boolean } | undefined;
+    // Listed while the hook answered; it throws from the second call on.
+    const { calendar, received } = calendarWith((name) => {
+      if (name === "list_events") link!.fails = true;
+      return { events: [] };
+    });
+    const bot = await botWith(
+      [
+        runTool("calendar_list_events", { day: "today" }),
+        runTool("calendar_create_event", { day: "today" }),
+        round(),
+      ],
+      { connection: calendar },
+    );
+    link = bot.link;
+
+    await send(bot.client, bot.botId, "look at my calendar");
+
+    const results = await toolResults(bot.botId);
+    expect(results).toContain("Connection Google Calendar is unavailable right now.");
+    expect(results).not.toContain("needs reconnecting");
+    expect(results).not.toContain("database is down");
+    expect(received.map((each) => each.tool)).toEqual(["list_events"]);
+  });
 
   it("answers any other failure, a network one included, with that error, fenced", async () => {
     const { calendar } = calendarWith((name) => {

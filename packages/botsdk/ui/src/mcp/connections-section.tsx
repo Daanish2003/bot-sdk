@@ -57,18 +57,18 @@ export function ConnectionsSection({ host }: { host: ConnectionsHost }) {
               <p className="text-xs text-muted-foreground">{t(stateKeys[connection.state])}</p>
             </div>
             <div className="flex gap-2">
-              {connection.state !== "connected" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={connect.isPending}
-                  onClick={() => connect.mutate(connection.key)}
-                >
-                  {connection.state === "reconnect"
-                    ? t("settings.reconnect")
-                    : t("settings.connect")}
-                </Button>
-              )}
+              {/* Reconnect stays offered while connected: an app can refuse a token the Host
+                  still holds (a revoked GitHub app), and only the user can see that. */}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={connect.isPending}
+                onClick={() => connect.mutate(connection.key)}
+              >
+                {connection.state === "disconnected"
+                  ? t("settings.connect")
+                  : t("settings.reconnect")}
+              </Button>
               {connection.state !== "disconnected" && (
                 <Button
                   size="sm"

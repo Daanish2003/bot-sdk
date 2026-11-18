@@ -197,3 +197,122 @@ describe("the gmail provider", () => {
     expect(await linkedAccessToken(auth, database, userId, "gmail")).toEqual({ status: "none" });
   });
 });
+
+const jwt = (claims: Record<string, unknown>) => {
+  const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${part({ alg: "none" })}.${part(claims)}.sig`;
+};
+
+/** Links `provider` for the signed-in user through the fake Google, and answers its account row. */
+async function linked(auth: Auth, cookie: string, userId: string, provider: string) {
+  fakeGoogle();
+  const { authorize, cookie: cookies } = await startLink(auth, cookie, provider);
+  const callback = new URL(`${BASE}/api/auth/callback/${provider}`);
+  callback.searchParams.set("code", "code-1");
+  callback.searchParams.set("state", authorize.searchParams.get("state") ?? "");
+  await auth.handler(new Request(callback, { headers: { cookie: cookies } }));
+  vi.unstubAllGlobals();
+  const [row] = await database
+    .select()
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, provider)));
+  return row;
+}
+
+/** Google's token endpoint answering each request with `reply`; the requests' bodies are recorded. */
+function fakeTokenEndpoint(reply: () => Response) {
+  const real = globalThis.fetch;
+  const calls: URLSearchParams[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url !== "https://oauth2.googleapis.com/token") return real(input, init);
+    calls.push(new URLSearchParams(String(init?.body)));
+    return reply();
+  });
+  return calls;
+}
+
+describe.each(["gmail", "google-calendar"])("the %s Connection's token", (provider) => {
+  async function expired() {
+    const auth = newAuth();
+    const { cookie, userId } = await signedIn(auth, `expired-${randomUUID()}@example.com`);
+    const row = await linked(auth, cookie, userId, provider);
+    await database
+      .update(account)
+      .set({ accessTokenExpiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(account.id, row.id));
+    return { auth, userId };
+  }
+
+  it("is refreshed with its refresh token once it has expired", async () => {
+    const { auth, userId } = await expired();
+    const calls = fakeTokenEndpoint(() =>
+      json({ access_token: "ya29.refreshed", expires_in: 3599, token_type: "Bearer" }),
+    );
+
+    const token = await linkedAccessToken(auth, database, userId, provider);
+
+    expect(token).toMatchObject({ status: "ok", accessToken: "ya29.refreshed" });
+    expect(token.status === "ok" && token.expiresAt?.getTime()).toBeGreaterThan(Date.now());
+    expect(calls).toHaveLength(1);
+    expect(calls[0].get("grant_type")).toBe("refresh_token");
+    expect(calls[0].get("refresh_token")).toBe("1//gmail-refresh");
+  });
+
+  it("needs reconnecting when Google refuses the refresh", async () => {
+    const { auth, userId } = await expired();
+    fakeTokenEndpoint(
+      () => new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 }),
+    );
+
+    expect(await linkedAccessToken(auth, database, userId, provider)).toEqual({
+      status: "needs-reconnect",
+    });
+  });
+});
+
+describe("the Google Connections and a Google sign-in", () => {
+  it("are left as they are when the user signs in with Google", async () => {
+    const auth = newAuth();
+    const email = `both-${randomUUID()}@example.com`;
+    const { cookie, userId } = await signedIn(auth, email);
+    const before = [
+      await linked(auth, cookie, userId, "gmail"),
+      await linked(auth, cookie, userId, "google-calendar"),
+    ];
+
+    const started = await post(auth, "/sign-in/social", { provider: "google", callbackURL: "/c" });
+    const { url } = (await started.json()) as { url: string };
+    const real = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const target = input instanceof Request ? input.url : String(input);
+      if (target !== "https://oauth2.googleapis.com/token") return real(input, init);
+      return json({
+        access_token: "ya29.signin-token",
+        expires_in: 3599,
+        token_type: "Bearer",
+        id_token: jwt({ sub: "1077", email, email_verified: true, name: "Me" }),
+      });
+    });
+    const callback = new URL(`${BASE}/api/auth/callback/google`);
+    callback.searchParams.set("code", "code-1");
+    callback.searchParams.set("state", new URL(url).searchParams.get("state") ?? "");
+    const response = await auth.handler(
+      new Request(callback, { headers: { cookie: cookieOf(started) } }),
+    );
+
+    expect(response.headers.get("location")).not.toContain("error");
+    const rows = await database.select().from(account).where(eq(account.userId, userId));
+    expect(rows.map((row) => row.providerId).sort()).toEqual([
+      "credential",
+      "gmail",
+      "google",
+      "google-calendar",
+    ]);
+    expect(
+      rows
+        .filter((row) => row.providerId !== "google" && row.providerId !== "credential")
+        .sort((a, b) => a.providerId.localeCompare(b.providerId)),
+    ).toEqual(before);
+  });
+});

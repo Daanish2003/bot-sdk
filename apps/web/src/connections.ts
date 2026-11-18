@@ -1,3 +1,9 @@
+import {
+  GITHUB_CONNECTION_PROVIDER,
+  GMAIL_PROVIDER,
+  GOOGLE_CALENDAR_PROVIDER,
+  NOTION_PROVIDER,
+} from "@ai-chat/auth/providers";
 import type { LinkedAccessToken } from "@ai-chat/auth/linked-token";
 import type { ConnectionHook, McpConnection } from "@botsdk/mcp";
 
@@ -124,5 +130,21 @@ export function connectionHookOf(
     const token = await tokenFor[key]?.(userId);
     if (token?.status === "ok") return { accessToken: token.accessToken };
     return token?.status === "needs-reconnect" ? { reconnect: true } : null;
+  };
+}
+
+/**
+ * Each Connection's token, by key, from its Better Auth provider through `read`. Read afresh on
+ * every ask, never cached: Settings lists the states again right after a Disconnect, and the
+ * Connection's tools must stop with it.
+ */
+export function connectionTokensOf(
+  read: (userId: string, providerId: string) => Promise<LinkedAccessToken>,
+): Record<string, (userId: string) => Promise<LinkedAccessToken>> {
+  return {
+    github: (userId) => read(userId, GITHUB_CONNECTION_PROVIDER),
+    google_calendar: (userId) => read(userId, GOOGLE_CALENDAR_PROVIDER),
+    gmail: (userId) => read(userId, GMAIL_PROVIDER),
+    notion: (userId) => read(userId, NOTION_PROVIDER),
   };
 }

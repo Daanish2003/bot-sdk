@@ -13,6 +13,7 @@ import {
   type ConnectionHook,
   type HostTool,
   type McpConnection,
+  tokenOrFailure,
   untilAborted,
 } from "./connections";
 
@@ -53,7 +54,7 @@ export async function openMcpTools(
       );
       if (!accessToken || signal.aborted) return [];
       if (server.tools) {
-        const tokenNow = () => accessTokenFor(deps, hook, userId, server.key);
+        const tokenNow = () => tokenOrFailure(deps, hook, userId, server.key);
         return hostTools(server, server.tools, tokenNow, signal);
       }
       let client: { close: () => Promise<void>; tools: () => Promise<unknown> } | undefined;
@@ -99,13 +100,14 @@ export async function openMcpTools(
 /**
  * A Connection's Host tools as server tools named `<key>_<tool>`, their input and result checked
  * against the tool's schemas. Each call asks `tokenNow` for the token, so one the Host refreshed
- * since the tools were listed is the one used, and none means the Connection is broken. A call
- * stops when the Turn's `signal` or the call's own aborts.
+ * since the tools were listed is the one used, and none means the Connection is broken. A hook that
+ * throws fails only the call: the Connection may be fine. A call stops when the Turn's `signal` or
+ * the call's own aborts.
  */
 function hostTools(
-  connection: Pick<McpConnection, "key" | "approvalFree" | "readOnlyTools">,
+  connection: Pick<McpConnection, "key" | "name" | "approvalFree" | "readOnlyTools">,
   tools: readonly HostTool[],
-  tokenNow: () => Promise<string | null>,
+  tokenNow: () => Promise<string | null | "failed">,
   signal: AbortSignal,
 ): AnyServerTool[] {
   return tools.map((tool) =>
@@ -119,6 +121,9 @@ function hostTools(
     }).server(async (args, context) => {
       const input = await checked(tool.inputSchema, args, "Its input");
       const accessToken = await tokenNow();
+      if (accessToken === "failed") {
+        throw new Error(`Connection ${connection.name} is unavailable right now.`);
+      }
       if (!accessToken) throw new ConnectionBrokenError("The Host gave no token");
       const stop = context?.abortSignal ? AbortSignal.any([signal, context.abortSignal]) : signal;
       const result = await tool.execute(input, { accessToken, signal: stop });

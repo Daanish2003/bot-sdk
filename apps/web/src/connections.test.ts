@@ -1,7 +1,7 @@
 import type { LinkedAccessToken } from "@ai-chat/auth/linked-token";
 import { describe, expect, it } from "vitest";
 
-import { connectionHookOf, connectionsOf } from "./connections";
+import { connectionHookOf, connectionsOf, connectionTokensOf } from "./connections";
 
 const hookFor = (token: LinkedAccessToken) => connectionHookOf({ github: async () => token });
 
@@ -215,5 +215,30 @@ describe("the connection hook", () => {
     await hook("user-7", "github");
 
     expect(asked).toEqual(["user-7"]);
+  });
+});
+
+describe("each Connection's token", () => {
+  it.each([
+    ["github", "github-connection"],
+    ["google_calendar", "google-calendar"],
+    ["gmail", "gmail"],
+    ["notion", "notion"],
+  ])("reads %s as not linked right after its link is removed", async (key, providerId) => {
+    const linked = new Map([[`user-1:${providerId}`, "token-1"]]);
+    const hook = connectionHookOf(
+      connectionTokensOf(async (userId, provider) => {
+        const accessToken = linked.get(`${userId}:${provider}`);
+        // A token good for an hour, which a cache would keep.
+        const expiresAt = new Date(Date.now() + 3_600_000);
+        return accessToken ? { status: "ok", accessToken, expiresAt } : { status: "none" };
+      }),
+    );
+
+    expect(await hook("user-1", key)).toEqual({ accessToken: "token-1" });
+    linked.delete(`user-1:${providerId}`);
+
+    // Settings lists the states again right after a Disconnect, and the tools stop with it.
+    expect(await hook("user-1", key)).toBeNull();
   });
 });

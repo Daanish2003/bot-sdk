@@ -3,7 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { isBanActive } from "@/admin/ban";
-import { type AdminUser, selectUsers, windowStart } from "@/admin/users";
+import { type AdminUser, selectUsers, signInMethodsOf, windowStart } from "@/admin/users";
 import { ENV } from "@/env.server";
 import { quotaOf } from "@/host-models";
 import { adminMiddleware } from "@/middleware/admin";
@@ -14,12 +14,6 @@ const querySchema = z.object({
   sort: z.enum(["email", "spend"]).default("email"),
   atQuota: z.boolean().default(false),
 });
-
-const providerNames: Record<string, string> = {
-  credential: "Password",
-  github: "GitHub",
-  google: "Google",
-};
 
 /**
  * The Admin users table (spec #277): every user with their sign-in methods, role, Ban status and
@@ -59,9 +53,9 @@ export const listAdminUsers = createServerFn({ method: "GET" })
       name: row.name,
       email: row.email,
       createdAt: row.createdAt.toISOString(),
-      signInMethods: accounts
-        .filter((linked) => linked.userId === row.id)
-        .map((linked) => providerNames[linked.providerId] ?? linked.providerId),
+      signInMethods: signInMethodsOf(
+        accounts.filter((linked) => linked.userId === row.id).map((linked) => linked.providerId),
+      ),
       role: row.role,
       banned: isBanActive(row, now),
       banExpires: isBanActive(row, now) ? (row.banExpires?.toISOString() ?? null) : null,

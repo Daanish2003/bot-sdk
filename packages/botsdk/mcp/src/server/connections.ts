@@ -168,8 +168,23 @@ export async function accessTokenFor(
   userId: string,
   key: string,
 ): Promise<string | null> {
+  const token = await tokenOrFailure(deps, hook, userId, key);
+  return token === "failed" ? null : token;
+}
+
+/**
+ * `accessTokenFor`, but `failed` when the hook threw: the Host couldn't say, which is not the
+ * Connection needing a reconnect.
+ */
+export async function tokenOrFailure(
+  deps: Deps,
+  hook: ConnectionHook | undefined,
+  userId: string,
+  key: string,
+): Promise<string | null | "failed"> {
   const answer = await ask(deps, hook, userId, key);
-  return answer && answer !== "failed" && "accessToken" in answer ? answer.accessToken : null;
+  if (answer === "failed") return answer;
+  return answer && "accessToken" in answer ? answer.accessToken : null;
 }
 
 /**

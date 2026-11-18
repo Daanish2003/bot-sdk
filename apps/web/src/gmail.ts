@@ -102,6 +102,32 @@ function headerValue(value: string): string {
   return value;
 }
 
+/** A header from the thread, folded onto one line: its line breaks can't start headers of their own. */
+const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
+
+/**
+ * A header value as Gmail gives it, its UTF-8 encoded words decoded (the space between two of them
+ * dropped, as RFC 2047 says) and its whitespace collapsed, so a re-folded subject still compares.
+ */
+const decodedWord = (value: string) =>
+  oneLine(
+    value
+      .replace(/\?=\s+=\?/g, "?==?")
+      .replace(/=\?UTF-8\?B\?([A-Za-z0-9+/=]*)\?=/gi, (_, data: string) =>
+        Buffer.from(data, "base64").toString("utf8"),
+      ),
+  );
+
+/**
+ * The email addresses in a recipient list, lowercased and sorted. Only the addresses are read, so a
+ * display name, with a comma in it or not, never counts as one.
+ */
+const addressesOf = (list: string) =>
+  (list.match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []).map((each) => each.toLowerCase()).sort();
+
+const sameAddresses = (header: string | undefined, given: string[]) =>
+  addressesOf(header ?? "").join(",") === addressesOf(given.join(", ")).join(",");
+
 /** An RFC 2822 plain-text message, base64url encoded as Gmail's `raw` field wants it. */
 function rawMessage(fields: {
   to: string[];
@@ -115,8 +141,8 @@ function rawMessage(fields: {
     `To: ${fields.to.map(headerValue).join(", ")}`,
     ...(fields.cc?.length ? [`Cc: ${fields.cc.map(headerValue).join(", ")}`] : []),
     `Subject: ${encodedWord(headerValue(fields.subject))}`,
-    ...(fields.inReplyTo ? [`In-Reply-To: ${fields.inReplyTo}`] : []),
-    ...(fields.references ? [`References: ${fields.references}`] : []),
+    ...(fields.inReplyTo ? [`In-Reply-To: ${oneLine(fields.inReplyTo)}`] : []),
+    ...(fields.references ? [`References: ${oneLine(fields.references)}`] : []),
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
@@ -179,7 +205,8 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
       description:
         "Create a draft, which sends nothing until send_draft. With threadId it is a reply to " +
         "the thread's last message, addressed to its sender unless `to` is given; without, it " +
-        "is a new message and needs `to` and `subject`.",
+        "is a new message and needs `to` and `subject`. Answers the draft's recipients and " +
+        "subject, which send_draft asks for.",
       inputSchema: z.object({
         threadId: threadId.optional().meta({ description: "The thread to reply in." }),
         to: z.array(z.string()).optional().meta({ description: "Email addresses." }),
@@ -187,7 +214,13 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
         subject: z.string().optional(),
         body: z.string().meta({ description: "The message's text." }),
       }),
-      outputSchema: z.object({ draftId: z.string(), threadId: z.string().optional() }),
+      outputSchema: z.object({
+        draftId: z.string(),
+        threadId: z.string().optional(),
+        to: z.array(z.string()),
+        cc: z.array(z.string()),
+        subject: z.string(),
+      }),
       execute: async (input, { accessToken, signal }) => {
         let fields: Parameters<typeof rawMessage>[0];
         if (input.threadId) {
@@ -236,15 +269,47 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
           },
           signal,
         })) as { id: string; message?: { threadId?: string } };
-        return { draftId: draft.id, threadId: draft.message?.threadId };
+        return {
+          draftId: draft.id,
+          threadId: draft.message?.threadId,
+          to: fields.to,
+          cc: fields.cc ?? [],
+          subject: fields.subject,
+        };
       },
     },
     {
       name: "send_draft",
-      description: "Send a draft made with create_draft, as it stands.",
-      inputSchema: z.object({ draftId: z.string() }),
+      description:
+        "Send a draft made with create_draft, as it stands. Give its recipients (to and cc) and " +
+        "subject as create_draft answered them: a draft that doesn't have exactly them, or has a " +
+        "Bcc, is not sent.",
+      inputSchema: z.object({
+        draftId: z.string(),
+        to: z.array(z.string()).min(1).meta({ description: "The draft's recipients." }),
+        cc: z.array(z.string()).default([]).meta({ description: "The draft's Cc recipients." }),
+        subject: z.string().meta({ description: "The draft's subject." }),
+      }),
       outputSchema: z.object({ messageId: z.string(), threadId: z.string().optional() }),
       execute: async (input, { accessToken, signal }) => {
+        // The reviewer sees only this call, so the draft must be the one the call names.
+        const draft = (await call(
+          accessToken,
+          `${api}/drafts/${encodeURIComponent(input.draftId)}?format=metadata`,
+          { signal },
+        )) as { message?: GoogleMessage };
+        const payload = draft.message?.payload;
+        const subject = decodedWord(headerOf(payload, "Subject") ?? "");
+        if (
+          !sameAddresses(headerOf(payload, "To"), input.to) ||
+          !sameAddresses(headerOf(payload, "Cc"), input.cc) ||
+          addressesOf(headerOf(payload, "Bcc") ?? "").length > 0 ||
+          subject !== oneLine(input.subject)
+        ) {
+          throw new Error(
+            "The draft's recipients or subject aren't the ones given, so it was not sent.",
+          );
+        }
         const sent = (await call(accessToken, `${api}/drafts/send`, {
           method: "POST",
           body: { id: input.draftId },
