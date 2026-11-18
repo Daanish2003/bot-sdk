@@ -221,7 +221,12 @@ describe("the Gmail tools", () => {
     });
     expect(raw.body).toBe("Noon?");
     expect(raw.threadId).toBeUndefined();
-    expect(result).toEqual({ draftId: "d1", threadId: "t9" });
+    expect(result).toEqual({
+      draftId: "d1",
+      threadId: "t9",
+      to: ["ann@example.com", "bob@example.com"],
+      subject: "Lunch",
+    });
   });
 
   it("create_draft with a threadId is a reply: it answers the last message, in its thread", async () => {
@@ -246,7 +251,7 @@ describe("the Gmail tools", () => {
       References: "<m1@example.com> <m2@example.com>",
     });
     expect(raw.body).toBe("Friday works.");
-    expect(result).toEqual({ draftId: "d2", threadId: "t1" });
+    expect(result).toMatchObject({ draftId: "d2", threadId: "t1" });
   });
 
   it("create_draft refuses a recipient or subject with a line break, which would add headers", async () => {
@@ -263,6 +268,25 @@ describe("the Gmail tools", () => {
       run(tools.create_draft, { to: ["a@example.com"], subject: "Hi\nBcc: evil@x.com", body: "x" }),
     ).rejects.toThrow("line break");
     expect(sent).toEqual([]);
+  });
+
+  it("create_draft keeps a line break in the thread's Message-ID or References out of its headers", async () => {
+    const broken = structuredClone(googleThread);
+    broken.messages[1]!.payload.headers = [
+      header("From", "bob@example.com"),
+      header("Subject", "Re: Friday"),
+      header("Message-ID", "<m2@example.com>\r\nBcc: evil@example.com"),
+      header("References", "<m1@example.com>\r\nBcc: evil@example.com"),
+    ];
+    const { sent, tools } = fakeGoogle((request) =>
+      request.method === "GET" ? json(broken) : json({ id: "d5", message: { threadId: "t1" } }),
+    );
+
+    await run(tools.create_draft, { threadId: "t1", body: "Ping." });
+
+    const raw = rawOf(sent[1]!.body);
+    expect(raw.headers.Bcc).toBeUndefined();
+    expect(raw.headers["In-Reply-To"]).toBe("<m2@example.com> Bcc: evil@example.com");
   });
 
   it("create_draft answers a reply to the user's own last message to whom it went", async () => {
@@ -299,17 +323,66 @@ describe("the Gmail tools", () => {
     expect(raw.body).toBe("Grüße");
   });
 
-  it("send_draft sends the draft by its id", async () => {
-    const { sent, tools } = fakeGoogle(() =>
-      json({ id: "m12", threadId: "t1", labelIds: ["SENT"] }),
+  /** A fake Gmail holding draft d2, with `headers`, that answers its send. */
+  const draftGoogle = (headers: { name: string; value: string }[]) =>
+    fakeGoogle((request) =>
+      request.method === "GET"
+        ? json({ id: "d2", message: { id: "m10", threadId: "t1", payload: { headers } } })
+        : json({ id: "m12", threadId: "t1", labelIds: ["SENT"] }),
     );
 
-    const result = await run(tools.send_draft, { draftId: "d2" });
+  it("send_draft sends the draft by its id once its recipients and subject are the ones given", async () => {
+    const { sent, tools } = draftGoogle([
+      header("To", "Bob <bob.reply@example.com>, ann@example.com"),
+      header("Subject", `=?UTF-8?B?${Buffer.from("Re: Café").toString("base64")}?=`),
+    ]);
+
+    const result = await run(tools.send_draft, {
+      draftId: "d2",
+      to: ["ann@example.com", "bob.reply@example.com"],
+      subject: "Re: Café",
+    });
 
     expect(sent.map(({ method, url, body }) => ({ method, url, body }))).toEqual([
+      { method: "GET", url: `${api}/drafts/d2?format=metadata`, body: undefined },
       { method: "POST", url: `${api}/drafts/send`, body: { id: "d2" } },
     ]);
     expect(result).toEqual({ messageId: "m12", threadId: "t1" });
+  });
+
+  it.each([
+    ["another recipient", { to: ["eve@example.com"], subject: "Re: Friday" }],
+    ["a recipient fewer", { to: ["bob@example.com"], subject: "Re: Friday" }],
+    ["another subject", { to: ["bob@example.com", "ann@example.com"], subject: "Friday" }],
+  ])(
+    "send_draft refuses a draft with %s than the call names, and sends nothing",
+    async (_name, given) => {
+      const { sent, tools } = draftGoogle([
+        header("To", "bob@example.com, ann@example.com"),
+        header("Subject", "Re: Friday"),
+      ]);
+
+      const failure = run(tools.send_draft, { draftId: "d2", ...given });
+
+      await expect(failure).rejects.toThrow("so it was not sent");
+      await expect(failure).rejects.not.toBeInstanceOf(ConnectionBrokenError);
+      expect(sent.map(({ method }) => method)).toEqual(["GET"]);
+    },
+  );
+
+  it("create_draft answers the recipients and subject send_draft asks for", async () => {
+    const { tools } = fakeGoogle((request) =>
+      request.method === "GET"
+        ? json(googleThread)
+        : json({ id: "d2", message: { threadId: "t1" } }),
+    );
+
+    expect(await run(tools.create_draft, { threadId: "t1", body: "Friday works." })).toEqual({
+      draftId: "d2",
+      threadId: "t1",
+      to: ["bob.reply@example.com"],
+      subject: "Re: Friday",
+    });
   });
 
   it("archive_thread takes the thread out of the inbox", async () => {
