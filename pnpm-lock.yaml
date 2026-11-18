@@ -859,9 +859,6 @@ importers:
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-rc.4(@cloudflare/workers-types@4.20260702.1)(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(pg@8.23.1)(zod@4.6.5)
-      zod:
-        specifier: 'catalog:'
-        version: 4.6.5
     devDependencies:
       '@ai-chat/config':
         specifier: workspace:*
@@ -878,9 +875,6 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.3.0
-      drizzle-kit:
-        specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4
       react:
         specifier: 'catalog:'
         version: 19.3.0

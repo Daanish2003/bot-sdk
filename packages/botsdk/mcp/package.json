@@ -16,8 +16,7 @@
     "@orpc/contract": "catalog:",
     "@tanstack/ai": "1.0.0",
     "@tanstack/ai-mcp": "1.0.0",
-    "drizzle-orm": "catalog:",
-    "zod": "catalog:"
+    "drizzle-orm": "catalog:"
   },
   "devDependencies": {
     "@ai-chat/config": "workspace:*",
@@ -25,7 +24,6 @@
     "@botsdk/testing": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "@types/react": "catalog:",
-    "drizzle-kit": "1.0.0-rc.4",
     "react": "catalog:",
     "typescript": "catalog:"
   },
