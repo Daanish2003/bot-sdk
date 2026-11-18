@@ -69,7 +69,7 @@ A user's own API key for a non-LLM service a tool needs, such as web search. Wit
 _Avoid_: Search key, Provider credentials (those are for Providers only)
 
 **Connection**:
-A user's sign-in to one of the apps the Host offers, such as Gmail or GitHub. Its tools come from an MCP server or from the Host itself. All of the user's Bots can use its tools. Signing in to a site in a Screen's Chrome is not a Connection.
+A user's sign-in to one of the apps the Host offers, such as Gmail or GitHub. Its tools come from an MCP server or from the Host itself. A user has at most one Connection per app. All of the user's Bots can use its tools. Signing in to a site in a Screen's Chrome is not a Connection.
 _Avoid_: Integration, connector, aggregator, MCP credential, Tool credential (that is an API key)
 
 **Connector tool**:
