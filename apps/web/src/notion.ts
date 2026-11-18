@@ -45,7 +45,7 @@ async function notionApi(
     signal: init.signal,
   });
   const body = (await response.json().catch(() => undefined)) as { message?: string } | undefined;
-  if (response.ok) return body;
+  if (response.ok) return body ?? {};
   // A revoked or invalid token: the user links Notion again (ADR 0037).
   if (response.status === 401)
     throw new ConnectionBrokenError("Notion refused the Connection's token");
@@ -87,8 +87,8 @@ function propertyText(property: NotionProperty): string {
         ? propertyText(value as NotionProperty)
         : "";
     case "unique_id": {
-      const id = value as { prefix?: string | null; number: number };
-      return `${id.prefix ? `${id.prefix}-` : ""}${id.number}`;
+      const id = value as { prefix?: string | null; number?: number } | null;
+      return id?.number === undefined ? "" : `${id.prefix ? `${id.prefix}-` : ""}${id.number}`;
     }
     default:
       // number, checkbox, url, email, phone_number, string, boolean, created_time, ...
