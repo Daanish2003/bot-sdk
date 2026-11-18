@@ -73,6 +73,14 @@ describe("the Connections section of the Keys page", () => {
     await waitFor(() => expect(connections.connect).toHaveBeenCalledWith("github"));
   });
 
+  it("offers Reconnect for a connected Connection, since an app can refuse a token the Host still holds", async () => {
+    const connections = page([{ key: "github", name: "GitHub", state: "connected" }]);
+
+    fireEvent.click(row("GitHub").getByRole("button", { name: "Reconnect" }));
+
+    await waitFor(() => expect(connections.connect).toHaveBeenCalledWith("github"));
+  });
+
   it("offers Disconnect for a connected Connection, which calls the Host's disconnect", async () => {
     const connections = page([{ key: "github", name: "GitHub", state: "connected" }]);
 
