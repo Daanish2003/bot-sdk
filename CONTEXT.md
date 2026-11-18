@@ -69,11 +69,11 @@ A user's own API key for a non-LLM service a tool needs, such as web search. Wit
 _Avoid_: Search key, Provider credentials (those are for Providers only)
 
 **Connection**:
-A user's sign-in to one of the MCP servers the Host offers. All of the user's Bots can use its tools. Signing in to a site in a Screen's Chrome is not a Connection.
-_Avoid_: Integration, connector, MCP credential, Tool credential (that is an API key)
+A user's sign-in to one of the apps the Host offers, such as Gmail or GitHub. Its tools come from an MCP server or from the Host itself. All of the user's Bots can use its tools. Signing in to a site in a Screen's Chrome is not a Connection.
+_Avoid_: Integration, connector, aggregator, MCP credential, Tool credential (that is an API key)
 
 **Connector tool**:
-A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and a call to it is checked by Auto-review, except for tools the server marks approval-free. When its Connection is gone or broken, the tool stays listed and the call returns an error telling the Bot to ask the user to reconnect.
+A tool a Bot gets from one of its user's Connections. It is a Deferred tool, and a call to it is checked by Auto-review, except for tools the MCP server or the Host marks approval-free. When its Connection is gone or broken, the tool stays listed and the call returns an error telling the Bot to ask the user to reconnect.
 _Avoid_: MCP tool, integration tool
 
 **Approval**:
@@ -220,7 +220,7 @@ _Avoid_: App, surface, client, platform
 
 **Channel account**:
 The bot one Bot is on a messaging Channel such as Telegram, Slack or SMS: the user made it on that platform and added it to the Bot. It belongs to that one Bot only, so each Bot is its own contact there.
-_Avoid_: Connection (that is an MCP sign-in), integration, bot token
+_Avoid_: Connection (that is a sign-in to an app), integration, bot token
 
 **Linked identity**:
 The user's own account on a messaging Channel, such as their Telegram account, their Slack member in one workspace or their phone number, proved by sending a link code to one of their Bots. All the user's Bots know it; a message from any other sender is dropped unanswered.
