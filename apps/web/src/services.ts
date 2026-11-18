@@ -1,8 +1,10 @@
 import { createAuth } from "@ai-chat/auth";
 import { chatgptAccessToken } from "@ai-chat/auth/chatgpt";
+import { linkedAccessToken } from "@ai-chat/auth/linked-token";
 import { createDb } from "@ai-chat/db";
 import { createHttpHandler, createScreenSocket } from "@botsdk/bot/http";
 import { createBotSdk } from "@botsdk/bot";
+import { mcp } from "@botsdk/mcp";
 import { redisRuntime, redisStore } from "@botsdk/pubsub-redis";
 import { telegram } from "@botsdk/channel-telegram";
 import { emailChannel } from "@botsdk/bot/channel";
@@ -24,6 +26,7 @@ import {
   quotaOf,
 } from "./host-models";
 import { linkedCredentialsHook } from "./chatgpt-link";
+import { connectionHookOf, connectionsOf } from "./connections";
 import { cachedTokenFor, linkedCredentialsOf } from "./linked-credentials";
 import { computerProviderOf } from "./computer";
 import { modelProviders } from "./model-providers";
@@ -74,6 +77,23 @@ const shared = globalThis as typeof globalThis & { botSdk?: ReturnType<typeof cr
 export const sdk = (shared.botSdk ??= createBotSdk({
   // Its database and features (botsdk.config.ts), which the migrate script migrates.
   ...botsdkConfig,
+  features: [
+    ...botsdkConfig.features,
+    // Connections (ADR 0037): each one's token comes from Better Auth through apps/web's own
+    // database pool, never the SDK's connection, so a hook asked inside an SDK transaction can't
+    // wait on it. A missing or broken link is never cached.
+    mcp({
+      connections: connectionsOf({
+        GITHUB_CLIENT_ID: ENV.GITHUB_CLIENT_ID,
+        GITHUB_CLIENT_SECRET: ENV.GITHUB_CLIENT_SECRET,
+      }),
+      connection: connectionHookOf({
+        github: cachedTokenFor((userId) =>
+          linkedAccessToken(auth, db, userId, "github-connection"),
+        ),
+      }),
+    }),
+  ],
   keyEncryptionSecrets: [ENV.KEY_ENCRYPTION_SECRET, ENV.KEY_ENCRYPTION_SECRET_PREVIOUS].filter(
     (secret): secret is string => Boolean(secret),
   ),

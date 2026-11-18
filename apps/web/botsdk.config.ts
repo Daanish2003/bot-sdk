@@ -1,6 +1,5 @@
 /// <reference types="node" />
 import { postgres, type BotSdkOptions } from "@botsdk/bot";
-import { mcp } from "@botsdk/mcp";
 
 import { e2bConfigOf } from "./src/computer";
 import { computerFeatures } from "./src/features";
@@ -25,7 +24,6 @@ export default {
   features: [
     // Memory, Skills and Knowledge need the Computer, so a Host without one lists none of them.
     ...computerFeatures(e2b !== undefined),
-    // Connections (ADR 0037): none declared yet, so the Keys page shows no Connections section.
-    mcp(),
+    // The `mcp` feature (Connections, ADR 0037) is added in src/services.ts: its token hook reads Better Auth.
   ],
 } as const satisfies Pick<BotSdkOptions, "database" | "features">;

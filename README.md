@@ -47,6 +47,8 @@ Open [http://localhost:3001](http://localhost:3001) in your browser to see the f
 
 To connect a ChatGPT plan (optional), set `CHATGPT_CLIENT_ID` and `CHATGPT_HOST_ID` in `apps/web/.env` and keep `BETTER_AUTH_URL=http://localhost:3001`. ChatGPT's redirect lands on `http://127.0.0.1:3001/auth/callback` and bounces back to `localhost`, where the session cookie lives.
 
+To offer the GitHub Connection (a Bot using GitHub's tools through GitHub's remote MCP server, ADR 0037), set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` (the same OAuth App as "Continue with GitHub") and set that OAuth App's callback URL to the app's `/api/auth/` base, for example `http://localhost:3001/api/auth/`. GitHub accepts any path under the callback URL, so one App serves both the sign-in (`/api/auth/callback/github`) and the Connection (`/api/auth/callback/github-connection`). Connect GitHub on Settings, Keys; it asks for the `repo`, `notifications` and `read:org` scopes, which a later GitHub sign-in keeps too.
+
 ## Testing
 
 Vitest runs every package's tests from the root config (`vitest.config.ts`):
