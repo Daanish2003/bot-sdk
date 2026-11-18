@@ -18,7 +18,7 @@ const message = z.object({
   date: z.string().optional(),
   labels: z.array(z.string()).optional(),
   snippet: z.string().optional(),
-  body: z.string().meta({ description: "The message's text, without its quoted history." }),
+  body: z.string().meta({ description: "The message's text, any quoted history included." }),
 });
 
 type GooglePart = {
@@ -51,6 +51,15 @@ function findPart(part: GooglePart | undefined, mimeType: string): GooglePart | 
   return undefined;
 }
 
+const htmlEntities: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  "#39": "'",
+  nbsp: " ",
+};
+
 /** A message's text: its plain-text part, else its HTML part with the tags dropped. */
 function bodyOf(payload: GooglePart | undefined): string {
   const plain = findPart(payload, "text/plain");
@@ -61,6 +70,7 @@ function bodyOf(payload: GooglePart | undefined): string {
       .replace(/<(style|script)[\s\S]*?<\/\1>/gi, "")
       .replace(/<br\s*\/?>|<\/p>/gi, "\n")
       .replace(/<[^>]+>/g, "")
+      .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name: string) => htmlEntities[name] ?? "")
       .trim();
   }
   return "";
@@ -86,6 +96,12 @@ const encodedWord = (value: string) =>
     ? value
     : `=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`;
 
+/** A header value from the Bot: a line break in it would add headers of its own, a Bcc included. */
+function headerValue(value: string): string {
+  if (/[\r\n]/.test(value)) throw new Error("A recipient or a subject can't hold a line break.");
+  return value;
+}
+
 /** An RFC 2822 plain-text message, base64url encoded as Gmail's `raw` field wants it. */
 function rawMessage(fields: {
   to: string[];
@@ -96,9 +112,9 @@ function rawMessage(fields: {
   references?: string;
 }): string {
   const headers = [
-    `To: ${fields.to.join(", ")}`,
-    ...(fields.cc?.length ? [`Cc: ${fields.cc.join(", ")}`] : []),
-    `Subject: ${encodedWord(fields.subject)}`,
+    `To: ${fields.to.map(headerValue).join(", ")}`,
+    ...(fields.cc?.length ? [`Cc: ${fields.cc.map(headerValue).join(", ")}`] : []),
+    `Subject: ${encodedWord(headerValue(fields.subject))}`,
     ...(fields.inReplyTo ? [`In-Reply-To: ${fields.inReplyTo}`] : []),
     ...(fields.references ? [`References: ${fields.references}`] : []),
     "MIME-Version: 1.0",
@@ -180,12 +196,16 @@ export function gmailTools(fetch: typeof globalThis.fetch = globalThis.fetch): H
             `${api}/threads/${encodeURIComponent(input.threadId)}?format=metadata`,
             { signal },
           )) as GoogleThread;
-          const last = thread.messages?.at(-1)?.payload;
+          const lastMessage = thread.messages?.at(-1);
+          const last = lastMessage?.payload;
           if (!last) throw new Error("The thread has no message to reply to.");
           const subject = headerOf(last, "Subject") ?? "";
           const messageId = headerOf(last, "Message-ID") ?? headerOf(last, "Message-Id");
           const references = headerOf(last, "References");
-          const sender = headerOf(last, "Reply-To") ?? headerOf(last, "From");
+          // A message the user sent is answered again to whom it went, not to the user.
+          const sender = lastMessage?.labelIds?.includes("SENT")
+            ? headerOf(last, "To")
+            : (headerOf(last, "Reply-To") ?? headerOf(last, "From"));
           const to = input.to ?? (sender ? [sender] : []);
           if (to.length === 0) throw new Error("The reply has no one to go to: give `to`.");
           fields = {

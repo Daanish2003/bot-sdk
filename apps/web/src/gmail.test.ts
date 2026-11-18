@@ -144,6 +144,27 @@ describe("the Gmail tools", () => {
     expect(await run(tools.search_threads, { query: "nothing" })).toEqual({ threads: [] });
   });
 
+  it("get_thread falls back to an HTML-only message's text, tags dropped and entities decoded", async () => {
+    const { tools } = fakeGoogle(() =>
+      json({
+        id: "t2",
+        messages: [
+          {
+            id: "m3",
+            payload: {
+              mimeType: "text/html",
+              body: { data: b64("<p>Tom &amp; Jerry</p><style>p{}</style>") },
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(await run(tools.get_thread, { threadId: "t2" })).toMatchObject({
+      messages: [{ body: "Tom & Jerry" }],
+    });
+  });
+
   it("get_thread reads a thread's messages, with their plain-text bodies", async () => {
     const { sent, tools } = fakeGoogle(() => json(googleThread));
 
@@ -226,6 +247,34 @@ describe("the Gmail tools", () => {
     });
     expect(raw.body).toBe("Friday works.");
     expect(result).toEqual({ draftId: "d2", threadId: "t1" });
+  });
+
+  it("create_draft refuses a recipient or subject with a line break, which would add headers", async () => {
+    const { sent, tools } = fakeGoogle(() => json({}));
+
+    await expect(
+      run(tools.create_draft, {
+        to: ["a@example.com\r\nBcc: evil@example.com"],
+        subject: "Hi",
+        body: "x",
+      }),
+    ).rejects.toThrow("line break");
+    await expect(
+      run(tools.create_draft, { to: ["a@example.com"], subject: "Hi\nBcc: evil@x.com", body: "x" }),
+    ).rejects.toThrow("line break");
+    expect(sent).toEqual([]);
+  });
+
+  it("create_draft answers a reply to the user's own last message to whom it went", async () => {
+    const sentLast = structuredClone(googleThread);
+    sentLast.messages[1]!.labelIds = ["SENT"];
+    const { sent, tools } = fakeGoogle((request) =>
+      request.method === "GET" ? json(sentLast) : json({ id: "d4", message: { threadId: "t1" } }),
+    );
+
+    await run(tools.create_draft, { threadId: "t1", body: "Ping." });
+
+    expect(rawOf(sent[1]!.body).headers.To).toBe("me@example.com, ann@example.com");
   });
 
   it("create_draft without a threadId needs recipients and a subject", async () => {
